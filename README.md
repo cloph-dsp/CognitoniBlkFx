@@ -4,8 +4,10 @@
 
 CognitoniBlkFx is a spectral FX plugin built with JUCE, reimplementing the classic **DtBlkFx** by Darrell Tam.
 
-## Credits
+## Downloads
+- TODO: Once I get the current features adjusted correctly I'll create built versions for VST3
 
+## Credits
 - Original DtBlkFx: **Darrell Tam**
 - Original public repo contributor: **skullzy**
 
@@ -22,7 +24,7 @@ Shapes the harmonic content of your audio toward a sawtooth-wave harmonic profil
 
 ## Features
 
-- Three spectral processing cards: AutoHarm, Contrast, Saws
+- Three spectral processing cards: **AutoHarm**, **Contrast**, **Saws**. The plan is to make more features based on requests and make a layout for moving and adding cards. Currently they are static.
 - Per-card bypass, frequency range (Freq A / Freq B), harmonic type selector, value, and mix controls
 - Master Wet/Dry for global dry/processed blend
 - Built-in presets including the classic DtBlkFx AutoHarm preset
