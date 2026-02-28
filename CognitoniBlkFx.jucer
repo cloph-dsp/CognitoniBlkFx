@@ -5,6 +5,7 @@
               companyWebsite="https://github.com/toni-lyttinen">
   <MAINGROUP id="fF0ddt" name="CognitoniBlkFx">
     <GROUP id="{1F8365D5-3C6A-114D-B333-CD2B5BC88359}" name="Source">
+      <FILE id="N2sr7e" name="CardSchema.h" compile="0" resource="0" file="Source/CardSchema.h"/>
       <FILE id="N1JIbq" name="PluginProcessor.cpp" compile="1" resource="0"
             file="Source/PluginProcessor.cpp"/>
       <FILE id="NZO3zu" name="PluginProcessor.h" compile="0" resource="0"
@@ -13,6 +14,14 @@
             file="Source/PluginEditor.cpp"/>
       <FILE id="VoZNtq" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
       <GROUP id="Gk9w8F" name="Cards">
+        <FILE id="lPBNa6" name="HarmonicMaskModel.h" compile="0" resource="0"
+              file="Source/Cards/HarmonicMaskModel.h"/>
+        <FILE id="iuRqQq" name="SawsCard.cpp" compile="1" resource="0" file="Source/Cards/SawsCard.cpp"/>
+        <FILE id="de4mDU" name="SawsCard.h" compile="0" resource="0" file="Source/Cards/SawsCard.h"/>
+        <FILE id="SXSB23" name="SawsCoefficients.h" compile="0" resource="0"
+              file="Source/Cards/SawsCoefficients.h"/>
+        <FILE id="boCwgk" name="SpectralMaskModel.h" compile="0" resource="0"
+              file="Source/Cards/SpectralMaskModel.h"/>
         <FILE id="aHM2d1" name="SpectralCard.h" compile="0" resource="0" file="Source/Cards/SpectralCard.h"/>
         <FILE id="aHM2d2" name="AutoHarmCard.h" compile="0" resource="0" file="Source/Cards/AutoHarmCard.h"/>
         <FILE id="aHM2d3" name="AutoHarmCard.cpp" compile="1" resource="0"
@@ -70,5 +79,27 @@
         <MODULEPATH id="juce_gui_extra" path="../../../modules"/>
       </MODULEPATHS>
     </VS2022>
+    <XCODE_MAC targetFolder="Builds/MacOSX">
+      <CONFIGURATIONS>
+        <CONFIGURATION isDebug="1" name="Debug"/>
+        <CONFIGURATION isDebug="0" name="Release"/>
+      </CONFIGURATIONS>
+      <MODULEPATHS>
+        <MODULEPATH id="juce_audio_basics" path="../../modules"/>
+        <MODULEPATH id="juce_audio_devices" path="../../modules"/>
+        <MODULEPATH id="juce_audio_formats" path="../../modules"/>
+        <MODULEPATH id="juce_audio_plugin_client" path="../../modules"/>
+        <MODULEPATH id="juce_audio_processors" path="../../modules"/>
+        <MODULEPATH id="juce_audio_processors_headless" path="../../modules"/>
+        <MODULEPATH id="juce_audio_utils" path="../../modules"/>
+        <MODULEPATH id="juce_core" path="../../modules"/>
+        <MODULEPATH id="juce_data_structures" path="../../modules"/>
+        <MODULEPATH id="juce_dsp" path="../../modules"/>
+        <MODULEPATH id="juce_events" path="../../modules"/>
+        <MODULEPATH id="juce_graphics" path="../../modules"/>
+        <MODULEPATH id="juce_gui_basics" path="../../modules"/>
+        <MODULEPATH id="juce_gui_extra" path="../../modules"/>
+      </MODULEPATHS>
+    </XCODE_MAC>
   </EXPORTFORMATS>
 </JUCERPROJECT>
