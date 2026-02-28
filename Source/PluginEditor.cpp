@@ -89,11 +89,6 @@ juce::String sawsValueText (double normalised)
     return "copy" + juce::String (pct);
 }
 
-juce::String normalisedToDbText (double normalised)
-{
-    const auto db = juce::jmap (juce::jlimit (0.0, 1.0, normalised), 0.0, 1.0, -40.0, 40.0);
-    return juce::String (db, 1) + " dB";
-}
 }
 
 CognitoniBlkFxAudioProcessorEditor::CardComponent::CardComponent (const juce::String& titleText,
@@ -621,14 +616,19 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
     auto leftSection = topBand.withX (leftCardBounds.getX()).withWidth ((centerCardBounds.getRight() - leftCardBounds.getX()) - 36);
     const auto iconButtonW = 30;
     const auto rowGap = 6;
+
+    const auto desiredBoxWidth = 180; 
+
     auto selectorRow = leftSection.removeFromBottom (34);
-    const auto selectorWidth = juce::jmax (180, selectorRow.getWidth() - ((iconButtonW * 2) + (rowGap * 2)));
-    auto selectorBounds = selectorRow.removeFromLeft (selectorWidth);
-    presetSelector.setBounds (selectorBounds);
+
+    auto selectorBounds = selectorRow.removeFromLeft (desiredBoxWidth);
+    presetSelector.setBounds (selectorBounds.withSizeKeepingCentre (desiredBoxWidth, 28));
+
     selectorRow.removeFromLeft (rowGap);
-    savePresetButton.setBounds (selectorRow.removeFromLeft (iconButtonW));
+    savePresetButton.setBounds (selectorRow.removeFromLeft (iconButtonW).withSizeKeepingCentre (iconButtonW, iconButtonW));
+
     selectorRow.removeFromLeft (rowGap);
-    deletePresetButton.setBounds (selectorRow.removeFromLeft (iconButtonW));
+    deletePresetButton.setBounds (selectorRow.removeFromLeft (iconButtonW).withSizeKeepingCentre (iconButtonW, iconButtonW));
 
     presetLabel.setBounds (selectorBounds.withY (selectorBounds.getY() - 22).withHeight (20));
 

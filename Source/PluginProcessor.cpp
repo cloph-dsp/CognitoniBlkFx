@@ -77,7 +77,7 @@ std::vector<CognitoniBlkFxAudioProcessor::PresetDefinition> CognitoniBlkFxAudioP
     std::vector<PresetDefinition> defaults
     {
         {
-            "DtBlkFx AutoHarm",
+            "AutoHarm",
             false,
             {
                 { paramMasterWetDry, 1.0f }
@@ -1079,8 +1079,7 @@ bool CognitoniBlkFxAudioProcessor::loadPresetsFromJson()
                 continue;
             }
 
-            if (! (preset.name == "DtBlkFx AutoHarm"
-                   || preset.name == "DtBlkFx Saws"
+            if (! (preset.name == "AutoHarm"
                    || preset.name == "Empty"))
             {
                 preset.userPreset = true;
