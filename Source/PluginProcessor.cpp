@@ -464,9 +464,10 @@ void CognitoniBlkFxAudioProcessor::prepareToPlay (double sampleRate, int samples
     fftProcessor.prepare (sampleRate, prepareChannels);
 
     FFTProcessor::Settings fftSettings;
-    // 0.88 overlap: hop ~1024 = N/4 for N=4096 (75% overlap).
-    // Hann window + 75% overlap satisfies COLA, giving click-free OLA.
-    fftSettings.overlapAmount = 0.88f;
+    // 0.499 overlap: hop=2351 for N=4096 (42.6% overlap).
+    // Matches original DtBlkFx AutoHarm preset (OVERLAP=0.499).
+    // Larger hop = wider blocks in spectrogram = original's "blocky" feel.
+    fftSettings.overlapAmount = 0.499f;
     fftProcessor.setSettings (fftSettings);
 
     for (auto& card : cardRack)
@@ -583,7 +584,7 @@ void CognitoniBlkFxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     }
 
     FFTProcessor::Settings fftSettings;
-    fftSettings.overlapAmount = 0.88f;
+    fftSettings.overlapAmount = 0.499f;
     fftProcessor.setSettings (fftSettings);
 
     pushParameterSnapshotToCards();

@@ -15,31 +15,37 @@ int overlapToHopSamples (float overlapAmount)
     return juce::jlimit (32, FFTProcessor::fftSize - 16, hop);
 }
 
-std::vector<float> buildHannWindow (int size)
+std::vector<float> buildTukeyWindow (int size)
 {
-    // Hann window (sqrt-Hann applied for both analysis and synthesis, so the
-    // overall A*S product is a full Hann window).
+    // Tukey window (alpha = 0.1): 90% flat rectangular centre with 5% cosine
+    // ramp at each edge (taper_samples = alpha/2 * N ≈ 205 for N=4096).
     //
-    // Key property: Hann satisfies the COLA (Constant OverLap Add) condition
-    // at 50 % and 75 % overlap, meaning sum(w[n - k*H]) = constant for all n.
-    // With the normRing per-sample normalisation, sum(w^2) is also handled
-    // automatically. This eliminates the frame-boundary transients (vertical
-    // stripes in the spectrogram) that appear with the near-rectangular Tukey
-    // window, because Hann reaches exactly zero at the frame edges, preventing
-    // phase discontinuities between consecutive frames.
+    // Why Tukey instead of Hann:
+    //   The original DtBlkFx uses a rectangular analysis window (no windowing
+    //   by default, shoulder_frac=0).  This gives the characteristic "blocky",
+    //   slightly gritty spectral shape — higher leakage than Hann but that IS
+    //   the "flawed" sound the user is looking for.  The short cosine taper
+    //   prevents hard-click edges when overlap-adding, and the normRing
+    //   per-sample normalisation handles reconstruction correctly regardless of
+    //   window shape.
     //
-    // At 75 % overlap (hop = N/4 = 1024 for N=4096) the normalised sum(w)=1.5
-    // and sum(w^2) is also constant, giving click-free reconstruction.
-    std::vector<float> window (static_cast<size_t> (size), 0.0f);
+    // With hop=2351 (overlapAmount=0.499) the taper region (205 samples) is
+    // always covered by the flat centre of the adjacent frame (overlap=1745),
+    // so normRing is always sufficiently large for glitch-free output.
+    std::vector<float> window (static_cast<size_t> (size), 1.0f);
     if (size <= 1)
         return window;
 
-    for (int i = 0; i < size; ++i)
+    // number of samples in each cosine taper (5% of N on each side)
+    const auto taper = static_cast<int> (0.05f * static_cast<float> (size));
+
+    for (int i = 0; i < taper; ++i)
     {
-        const auto phase = juce::MathConstants<float>::twoPi * static_cast<float> (i)
-                           / static_cast<float> (size);
-        // sqrt-Hann: analysis x synthesis = full Hann window
-        window[static_cast<size_t> (i)] = std::sqrt (0.5f * (1.0f - std::cos (phase)));
+        const auto w = 0.5f * (1.0f - std::cos (juce::MathConstants<float>::pi
+                                                    * static_cast<float> (i)
+                                                    / static_cast<float> (juce::jmax (1, taper))));
+        window[static_cast<size_t> (i)] = w;
+        window[static_cast<size_t> (size - 1 - i)] = w;
     }
 
     return window;
@@ -84,7 +90,7 @@ FFTProcessor::FFTProcessor()
     fftTimeDomain.resize (fftSize, 0.0f);
     fftPacked.resize (2 * fftSize, 0.0f);
     bins.resize ((fftSize / 2) + 1);
-    fftWindow = buildHannWindow (fftSize);
+    fftWindow = buildTukeyWindow (fftSize);
     overlapAddNormalisation = estimateOverlapAddGain (fftWindow, currentHopSize);
 }
 

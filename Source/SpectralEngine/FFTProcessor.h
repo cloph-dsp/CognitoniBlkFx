@@ -11,9 +11,10 @@ public:
 
     struct Settings
     {
-        // 0.88 → hop ≈ 1024 = N/4 at N=4096, which is 75 % overlap.
-        // Hann window + 75 % overlap satisfies COLA precisely.
-        float overlapAmount = 0.88f;
+        // 0.499 → hop = 2351 samples at N=4096, which is 42.6 % overlap.
+        // Matches the original DtBlkFx AutoHarm preset (OVERLAP param=0.499).
+        // Tukey window + normRing gives correct reconstruction at any hop.
+        float overlapAmount = 0.499f;
     };
 
     FFTProcessor();
