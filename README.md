@@ -1,5 +1,7 @@
 ﻿# CognitoniBlkFx
 
+ <img width="1260" height="729" alt="kuva" src="https://github.com/user-attachments/assets/0b0a2ded-25ee-47a8-b0cb-ce5fd2875346" />
+
 CognitoniBlkFx is a spectral FX plugin built with JUCE, reimplementing the classic **DtBlkFx** by Darrell Tam.
 
 ## Credits
