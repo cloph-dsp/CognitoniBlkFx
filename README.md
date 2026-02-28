@@ -49,7 +49,7 @@ Shapes the harmonic content of your audio toward a sawtooth-wave harmonic profil
 
 ### macOS / Linux
 
-Follow the same Projucer -> IDE/Makefile -> build flow for your platform.
+Follow the same Projucer -> IDE -> build flow for your platform.
 
 ## Project Structure
 
