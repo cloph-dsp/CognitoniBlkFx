@@ -199,7 +199,19 @@ void SawsCard::process (juce::dsp::Complex<float>* bins, int numBins)
         if (v1 < v0)
             break;
 
-        const auto harmonicNumber = juce::jmax (1, static_cast<int> (std::lround (harmonicIndexFloat)) + 1);
+        // Port of DtBlkFx HarmMatchProcess::run: curr_harm = (long)_curr_harm (C truncation,
+        // toward zero). If curr_harm < 0, run() returns immediately — window is left unchanged.
+        // Use truncation here to match exactly; do NOT clamp negative indices to 1.
+        const auto harmIndexInt = static_cast<int> (harmonicIndexFloat); // truncate toward zero
+        if (harmIndexInt < 0)
+        {
+            nextBin = v1 + 1;
+            centre += maskGeometry.spacing;
+            harmonicIndexFloat += 1.0f;
+            continue;
+        }
+
+        const auto harmonicNumber = harmIndexInt + 1; // 1-indexed: harmIndexInt=0 → harm[0]
         const auto harmonicPosition = static_cast<float> (harmonicNumber);
         // Port of DtBlkFx: target_pwr = harm_pwr * _pwr_scale — no division by harm0 here;
         // harm0 is already factored into pwrScale = fundamentalPwr / harm0Power.
