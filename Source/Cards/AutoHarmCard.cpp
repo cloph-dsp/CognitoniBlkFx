@@ -90,9 +90,8 @@ void AutoHarmCard::process (juce::dsp::Complex<float>* bins, int numBins)
     if (hzPerBin <= 0.0f)
         return;
 
-    // Fundamental search is always in bins 1..freq_fft_n/8 (= (numBins-1)/4),
-    // matching DtBlkFx AutoHarmFx: b0=0, b1=freq_fft_n/8 — hardcoded, independent
-    // of freqA/freqB. FreqA/B only governs where the amplitude is applied (inBandMask).
+    // Fundamental search: bins 1..(numBins-1)/4 — matches DtBlkFx AutoHarmFx (b1=freq_fft_n/8).
+    // FreqA/FreqB only governs where amplitude is applied, not where the peak is searched.
     const auto searchMaxBin = juce::jlimit (1, numBins - 2, (numBins - 1) / 4);
     const auto fundamentalBin = HarmonicMaskModel::findPeakOrFundamentalBin (bins,
                                                                               numBins,

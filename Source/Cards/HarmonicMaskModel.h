@@ -135,23 +135,7 @@ inline void forEachMaskedRange (const HarmonicMaskGeometry& geometry,
 template <typename ComplexType>
 inline float estimateFractionalPeakBin (const ComplexType* bins, int centreBin)
 {
-    // Fractional-bin estimator ported from DtBlkFx EstFftBin (fftw_support.cpp).
-    // Original algorithm: Darrell Tam.
-    //
-    // Given the centre bin of a detected peak and its two neighbours, computes
-    // a sub-bin frequency estimate using amplitude-weighted cosine interpolation:
-    //
-    //   t0 = bins[centre-1],  t1 = bins[centre],  t2 = bins[centre+1]
-    //   d0 = t1 - t0,         d1 = t2 - t1
-    //
-    //   p0 = |t0|*0.4 + |d0|   (weight favouring left side)
-    //   p1 = |t2|*0.4 + |d1|   (weight favouring right side)
-    //   s  = smoothstep(p0 / (p0+p1))   controls left/right blend
-    //
-    //   f0 = |t0| / |d0| * cos(arg(t0) - arg(d0))   (left estimate)
-    //   f1 = 1 + |t1| / |d1| * cos(arg(t1) - arg(d1)) (right estimate, offset by 1)
-    //
-    //   result = centre + clamp(f0*s + f1*(1-s), -0.5, 0.5)
+    // Port of DtBlkFx EstFftBin (fftw_support.cpp). Original algorithm: Darrell Tam.
 
     const auto t_prev = (centreBin > 0)
                             ? bins[centreBin - 1]
@@ -197,15 +181,7 @@ inline float findPeakOrFundamentalBin (const ComplexType* bins,
                                        int maxBin,
                                        float estimateFundamental = 1.0f)
 {
-    // Peak and fundamental estimator ported from DtBlkFx PeakFindFft
-    // (fftw_support.cpp). Original algorithm: Darrell Tam.
-    //
-    // 1. Scan [minBin..maxBin] for the bin with highest power (also checks
-    //    the half-bin between consecutive bins using a 90-degree rotation trick).
-    // 2. Refine to a fractional bin via estimateFractionalPeakBin.
-    // 3. If estimateFundamental > 1, test whether the peak is a harmonic of a
-    //    lower fundamental (checks divisors 2..estimateFundamental); if so,
-    //    returns the estimated fundamental bin instead.
+    // Port of DtBlkFx PeakFindFft (fftw_support.cpp). Original algorithm: Darrell Tam.
     if (bins == nullptr || numBins <= 2)
         return static_cast<float> (juce::jmax (1, minBin));
 

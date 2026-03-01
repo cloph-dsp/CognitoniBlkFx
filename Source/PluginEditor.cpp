@@ -474,14 +474,15 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     configureAmountKnob (contrastCard.wetDryKnob);
     configureAmountKnob (sawsCard.wetDryKnob);
     configureAmountKnob (masterWetDryKnob);
-    masterWetDryKnob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 72, 18);
+    masterWetDryKnob.setSliderStyle (juce::Slider::LinearHorizontal);
+    masterWetDryKnob.setTextBoxStyle (juce::Slider::TextBoxRight, false, 76, 20);
 
     configureRangeSlider (autoHarmCard.frequencyRangeSlider);
     configureRangeSlider (contrastCard.frequencyRangeSlider);
     configureRangeSlider (sawsCard.frequencyRangeSlider);
 
     masterWetDryLabel.setText ("Mix", juce::dontSendNotification);
-    masterWetDryLabel.setJustificationType (juce::Justification::centredRight);
+    masterWetDryLabel.setJustificationType (juce::Justification::centredLeft);
     masterWetDryLabel.setFont (juce::FontOptions().withHeight (16.0f).withStyle ("SemiBold"));
     masterWetDryLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (28, 32, 36));
 
@@ -667,19 +668,16 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
 
     presetLabel.setBounds (selectorBounds.withY (selectorBounds.getY() - 22).withHeight (20));
 
-    // Master Mix — horizontal row aligned with Preset selector row
-    // Label and knob sit side-by-side at the same vertical band as the combo.
-    const auto mixKnobSz  = 34;   // rotary square size
-    const auto mixLabelW  = 36;   // "Mix" text width
-    const auto mixGap     = 4;
-    const auto mixTotalW  = mixLabelW + mixGap + mixKnobSz;  // 74 px
-    const auto mixRowH    = 34;
+    // Master Mix — horizontal linear slider at right side of the preset row.
+    const auto mixSliderW = 200;
+    const auto mixLabelW  = 36;
+    const auto mixGap     = 6;
+    const auto mixTotalW  = mixLabelW + mixGap + mixSliderW;
+    const auto mixRowH    = 26;
     const auto mixRowX    = rightCardBounds.getRight() - mixTotalW;
-    const auto mixRowY    = topBand.getBottom() - mixRowH;   // same y as preset combo
-    auto mixLabelRect = juce::Rectangle<int> (mixRowX, mixRowY, mixLabelW, mixRowH);
-    auto mixKnobRect  = juce::Rectangle<int> (mixRowX + mixLabelW + mixGap, mixRowY, mixKnobSz, mixKnobSz);
-    masterWetDryLabel.setBounds (mixLabelRect.withSizeKeepingCentre (mixLabelW, 18));
-    masterWetDryKnob.setBounds  (mixKnobRect);
+    const auto mixRowY    = topBand.getBottom() - mixRowH;
+    masterWetDryLabel.setBounds (mixRowX, mixRowY, mixLabelW, mixRowH);
+    masterWetDryKnob.setBounds  (mixRowX + mixLabelW + mixGap, mixRowY - 1, mixSliderW, mixRowH + 2);
 }
 
 void CognitoniBlkFxAudioProcessorEditor::refreshPresetSelectorItems()

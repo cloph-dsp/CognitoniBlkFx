@@ -119,7 +119,8 @@ void SawsCard::process (juce::dsp::Complex<float>* bins, int numBins)
         ? juce::jlimit (0.0f, 1.0f, (amountValue - 0.5f) * 2.0f)
         : juce::jlimit (0.0f, 1.0f, amountValue * 2.0f);
 
-    if (modeAmount <= 0.0f)
+    // modeAmount=0 is valid — table[0] applies at scale/copy 0% (original: f_part=0 is processed).
+    if (modeAmount < 0.0f)
         return;
 
     const auto hzPerBin = (currentSampleRate > 0.0 && currentFftSize > 0)
@@ -140,8 +141,6 @@ void SawsCard::process (juce::dsp::Complex<float>* bins, int numBins)
     // interpolate harmonic power table by value and scale masked harmonic
     // regions toward those target powers.
     const auto tablePosition = modeAmount * static_cast<float> (SawsCoefficients::numTables - 1);
-    const auto firstCoefficient = lookupSawsCoefficient (tablePosition, 1.0f);
-    const auto normaliser = juce::jmax (1.0e-7f, firstCoefficient);
 
     const auto maskGeometry = HarmonicMaskModel::buildGeometry (0.2499f,
                                                                 fundamental,
@@ -202,9 +201,10 @@ void SawsCard::process (juce::dsp::Complex<float>* bins, int numBins)
 
         const auto harmonicNumber = juce::jmax (1, static_cast<int> (std::lround (harmonicIndexFloat)) + 1);
         const auto harmonicPosition = static_cast<float> (harmonicNumber);
+        // Port of DtBlkFx: target_pwr = harm_pwr * _pwr_scale — no division by harm0 here;
+        // harm0 is already factored into pwrScale = fundamentalPwr / harm0Power.
         const auto coefficient = lookupSawsCoefficient (tablePosition, harmonicPosition);
-        const auto targetNormPower = juce::jmax (0.0f, coefficient / normaliser);
-        const auto targetPower = static_cast<double> (targetNormPower * pwrScale);
+        const auto targetPower = static_cast<double> (juce::jmax (0.0f, coefficient) * pwrScale);
 
         double segmentPower = 0.0;
         for (int bin = v0; bin <= v1; ++bin)
@@ -217,8 +217,9 @@ void SawsCard::process (juce::dsp::Complex<float>* bins, int numBins)
 
         if (copyMode)
         {
-            const auto centreBin = static_cast<int> (std::lround (centre));
-            const auto centOffset = fundamentalCentre - centreBin;
+            // Matches DtBlkFx: cent_offs = RndToInt(freq - curr_cent) — round the difference,
+            // not the difference of the rounds (avoids ±1 bin offset when fractions cancel).
+            const auto centOffset = static_cast<int> (std::lround (fundamental - centre));
 
             auto src0 = v0 + centOffset;
             auto src1 = v1 + centOffset;

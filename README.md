@@ -42,7 +42,7 @@ flowchart TB
     end
 
     FX --> OPWR["Measure outputPower\n(sum of |bin|²)"]
-    OPWR --> NORM["Power normalise\npowerScale = EMA( sqrt(inputPower / outputPower) )\n(clamped to ±12 dB, alpha = 0.2)"]
+    OPWR --> NORM["Power normalise\npowerScale = sqrt(inputPower / outputPower)\n(port of DtBlkFx::procFFT, pwr_match=1)"]
     NORM --> SCALE["Scale all bins by powerScale"]
     SCALE --> IFFT["Inverse FFT → time-domain frame\n(4096 samples)"]
 
