@@ -89,6 +89,17 @@ juce::String sawsValueText (double normalised)
     return "copy" + juce::String (pct);
 }
 
+// Converts a normalised 0..1 parameter to a dB string matching the original DtBlkFx
+// FX_AMP display: lin_interp(param, -60, +40) dB (Darrell Tam).
+juce::String normalisedToDbText (double normalised)
+{
+    const auto v = juce::jlimit (0.0, 1.0, normalised);
+    if (v <= 0.0)
+        return "-inf dB";
+    const auto db = v * 100.0 - 60.0;
+    return juce::String (db, 1) + " dB";
+}
+
 }
 
 CognitoniBlkFxAudioProcessorEditor::CardComponent::CardComponent (const juce::String& titleText,
@@ -443,9 +454,9 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     autoHarmCard.amountLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (60, 66, 73));
     contrastCard.amountLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (60, 66, 73));
     sawsCard.amountLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (60, 66, 73));
-    autoHarmCard.amountLabel.setText ("Mix", juce::dontSendNotification);
-    contrastCard.amountLabel.setText ("Mix", juce::dontSendNotification);
-    sawsCard.amountLabel.setText ("Mix", juce::dontSendNotification);
+    autoHarmCard.amountLabel.setText ("dB", juce::dontSendNotification);
+    contrastCard.amountLabel.setText ("dB", juce::dontSendNotification);
+    sawsCard.amountLabel.setText ("dB", juce::dontSendNotification);
     autoHarmCard.wetDryLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (28, 32, 36));
     contrastCard.wetDryLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (28, 32, 36));
     sawsCard.wetDryLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (28, 32, 36));
@@ -463,15 +474,15 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     configureAmountKnob (contrastCard.wetDryKnob);
     configureAmountKnob (sawsCard.wetDryKnob);
     configureAmountKnob (masterWetDryKnob);
-    masterWetDryKnob.setTextBoxStyle (juce::Slider::TextBoxRight, false, 40, 20);
+    masterWetDryKnob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 72, 18);
 
     configureRangeSlider (autoHarmCard.frequencyRangeSlider);
     configureRangeSlider (contrastCard.frequencyRangeSlider);
     configureRangeSlider (sawsCard.frequencyRangeSlider);
 
     masterWetDryLabel.setText ("Mix", juce::dontSendNotification);
-    masterWetDryLabel.setJustificationType (juce::Justification::centredLeft);
-    masterWetDryLabel.setFont (juce::FontOptions().withHeight (18.0f).withStyle ("SemiBold"));
+    masterWetDryLabel.setJustificationType (juce::Justification::centredRight);
+    masterWetDryLabel.setFont (juce::FontOptions().withHeight (16.0f).withStyle ("SemiBold"));
     masterWetDryLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (28, 32, 36));
 
     autoHarmAmountAttachment = std::make_unique<SliderAttachment> (audioProcessor.getAPVTS(), paramAutoHarmWetDry, autoHarmCard.amountKnob);
@@ -505,9 +516,26 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     contrastCard.frequencyRangeSlider.textFromValueFunction = [this] (double value) { return normalisedToHzText (value); };
     sawsCard.frequencyRangeSlider.textFromValueFunction = [this] (double value) { return normalisedToHzText (value); };
 
-    autoHarmCard.amountKnob.textFromValueFunction = [] (double value) { return normalisedToPercentText (value); };
-    contrastCard.amountKnob.textFromValueFunction = [] (double value) { return normalisedToPercentText (value); };
-    sawsCard.amountKnob.textFromValueFunction = [] (double value) { return normalisedToPercentText (value); };
+    autoHarmCard.amountKnob.textFromValueFunction = [] (double value) { return normalisedToDbText (value); };
+    contrastCard.amountKnob.textFromValueFunction = [] (double value) { return normalisedToDbText (value); };
+    sawsCard.amountKnob.textFromValueFunction = [] (double value) { return normalisedToDbText (value); };
+
+    // valueFromTextFunction so that typing e.g. "-6" or "-6 dB" into the dB knob text box is parsed correctly.
+    // Normalised value = (dB + 60) / 100, matching lin_interp(param, -60, +40) in the original.
+    auto dbFromText = [] (const juce::String& text) -> double
+    {
+        auto t = text.trim().toLowerCase();
+        if (t.startsWith ("-inf"))
+            return 0.0;
+        auto numStr = t.upToFirstOccurrenceOf ("db", false, true).trim();
+        if (numStr.isEmpty())
+            numStr = t;
+        const auto db = numStr.getDoubleValue();
+        return juce::jlimit (0.0, 1.0, (db + 60.0) / 100.0);
+    };
+    autoHarmCard.amountKnob.valueFromTextFunction = dbFromText;
+    contrastCard.amountKnob.valueFromTextFunction = dbFromText;
+    sawsCard.amountKnob.valueFromTextFunction = dbFromText;
 
     auto wetText = [] (double value)
     {
@@ -519,9 +547,16 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     sawsCard.wetDryKnob.textFromValueFunction = [] (double value) { return sawsValueText (value); };
     masterWetDryKnob.textFromValueFunction = wetText;
 
-    autoHarmCard.amountKnob.setTooltip ("Controls AutoHarm wet/dry amount");
-    contrastCard.amountKnob.setTooltip ("Controls Contrast wet/dry amount");
-    sawsCard.amountKnob.setTooltip ("Controls Saws wet/dry amount");
+    // valueFromTextFunction so typing "50" or "50%" into the master mix text box works.
+    masterWetDryKnob.valueFromTextFunction = [] (const juce::String& text) -> double
+    {
+        const auto pct = text.trim().replace ("%", "").trim().getDoubleValue();
+        return juce::jlimit (0.0, 1.0, pct / 100.0);
+    };
+
+    autoHarmCard.amountKnob.setTooltip ("AutoHarm dB gain: -inf to +40 dB (-60=off, 0dB at 60%)");
+    contrastCard.amountKnob.setTooltip ("Contrast dB gain: -inf to +40 dB (-60=off, 0dB at 60%)");
+    sawsCard.amountKnob.setTooltip ("Saws dB gain: -inf to +40 dB (-60=off, 0dB at 60%)");
     autoHarmCard.harmonicType.setTooltip ("Select harmonic mode for AutoHarm");
     contrastCard.harmonicType.setTooltip ("Select harmonic mode for Contrast");
     sawsCard.harmonicType.setTooltip ("Select harmonic mode for Saws");
@@ -632,10 +667,19 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
 
     presetLabel.setBounds (selectorBounds.withY (selectorBounds.getY() - 22).withHeight (20));
 
-    auto masterRow = selectorBounds.withX (rightCardBounds.getRight() - 170).withWidth (170);
-    auto knobArea = masterRow.removeFromRight (128);
-    masterWetDryLabel.setBounds (masterRow.removeFromLeft (34));
-    masterWetDryKnob.setBounds (knobArea.withY (knobArea.getY() - 10).withHeight (52));
+    // Master Mix — horizontal row aligned with Preset selector row
+    // Label and knob sit side-by-side at the same vertical band as the combo.
+    const auto mixKnobSz  = 34;   // rotary square size
+    const auto mixLabelW  = 36;   // "Mix" text width
+    const auto mixGap     = 4;
+    const auto mixTotalW  = mixLabelW + mixGap + mixKnobSz;  // 74 px
+    const auto mixRowH    = 34;
+    const auto mixRowX    = rightCardBounds.getRight() - mixTotalW;
+    const auto mixRowY    = topBand.getBottom() - mixRowH;   // same y as preset combo
+    auto mixLabelRect = juce::Rectangle<int> (mixRowX, mixRowY, mixLabelW, mixRowH);
+    auto mixKnobRect  = juce::Rectangle<int> (mixRowX + mixLabelW + mixGap, mixRowY, mixKnobSz, mixKnobSz);
+    masterWetDryLabel.setBounds (mixLabelRect.withSizeKeepingCentre (mixLabelW, 18));
+    masterWetDryKnob.setBounds  (mixKnobRect);
 }
 
 void CognitoniBlkFxAudioProcessorEditor::refreshPresetSelectorItems()

@@ -84,34 +84,20 @@ void AutoHarmCard::process (juce::dsp::Complex<float>* bins, int numBins)
     if (value <= 0.0f)
         return;
 
-    // Map our SpectralHarmonicType enum to the original DtBlkFx harmonic-type
-    // index used inside HarmonicMaskModel::buildGeometry (SplitParam<4> encoding):
-    //   Original 0 = all harmonics  (our Both = 2)
-    //   Original 1 = odd harmonics  (our Odd  = 0)
-    //   Original 2 = even harmonics (our Even = 1)
-    //   Original 3 = between        (our Between = 3)
-    // The targetIntensity (value) controls the harmonic WIDTH (0..99%) within
-    // the selected type.  Synthesising the packed value this way makes the
-    // Type dropdown actually work instead of being a no-op.
-    static constexpr int harmTypeMap[4] = { 1, 2, 0, 3 }; // Odd, Even, Both, Between
-    const auto uiTypeIndex = juce::jlimit (0, 3, static_cast<int> (settings.harmonicType));
-    const auto originalTypeIndex = harmTypeMap[uiTypeIndex];
-    const auto packedHarmValue = (static_cast<float> (originalTypeIndex) + value * 0.9999f) / 4.0f;
+    const auto packedHarmValue = value;
 
     const auto hzPerBin = static_cast<float> (currentSampleRate / static_cast<double> (currentFftSize));
     if (hzPerBin <= 0.0f)
         return;
 
-    // Copied/ported algorithmic structure from DtBlkFx lineage (Darrell Tam; refactor lineage by skullzy):
-    // - peak/fundamental estimation in the first 1/8 of the spectrum
-    // - harmonic geometry from packed harmonic value (both/odd/even/between + width)
-    // - bounded harmonic count for mask generation
-    const auto minBin = 1;
-    const auto maxBin = juce::jlimit (minBin, numBins - 2, (numBins - 1) / 8);
+    // Fundamental search is always in bins 1..freq_fft_n/8 (= (numBins-1)/4),
+    // matching DtBlkFx AutoHarmFx: b0=0, b1=freq_fft_n/8 — hardcoded, independent
+    // of freqA/freqB. FreqA/B only governs where the amplitude is applied (inBandMask).
+    const auto searchMaxBin = juce::jlimit (1, numBins - 2, (numBins - 1) / 4);
     const auto fundamentalBin = HarmonicMaskModel::findPeakOrFundamentalBin (bins,
                                                                               numBins,
-                                                                              minBin,
-                                                                              maxBin,
+                                                                              1,
+                                                                              searchMaxBin,
                                                                               5.0f);
 
     const auto maskGeometry = HarmonicMaskModel::buildGeometry (packedHarmValue,

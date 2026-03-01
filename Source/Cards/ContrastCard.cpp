@@ -110,9 +110,10 @@ void ContrastCard::process (juce::dsp::Complex<float>* bins, int numBins)
                                         snapshot.searchBandHz,
                                         1);
 
-    // Original DtBlkFx ContrastFx processes ALL bins within the freq band
-    // (no harmonic type filtering). The original uses SplitMaskProcess which
-    // only restricts by freqA/freqB, not by harmonic type.
+    // Contrast applies to all bins within the frequency band (no harmonic
+    // filtering). Matches DtBlkFx ContrastFx which uses SplitMaskProcess,
+    // gating only by freqA/freqB (DtBlkFx FxRun1_0.cpp, ContrastFx).
+    // Original algorithm: Darrell Tam.
 
     std::vector<juce::dsp::Complex<float>> processed (static_cast<size_t> (numBins));
 

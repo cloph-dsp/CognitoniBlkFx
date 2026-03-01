@@ -126,14 +126,19 @@ void SawsCard::process (juce::dsp::Complex<float>* bins, int numBins)
         ? static_cast<float> (currentSampleRate / static_cast<double> (currentFftSize))
         : 0.0f;
 
+    // Default peak search range matches DtBlkFx AutoHarmMaskRun:
+    // b0=1, b1=freq_fft_n/8 where freq_fft_n=fftSize=2*(numBins-1),
+    // so b1 = (numBins-1)/4 (DtBlkFx FxRun1_0.cpp, AutoHarmMaskRun).
+    // Original algorithm: Darrell Tam.
     const auto fundamental = HarmonicMaskModel::findPeakOrFundamentalBin (bins,
                                                                            numBins,
                                                                            1,
-                                                                           juce::jlimit (1, numBins - 2, (numBins - 1) / 8),
+                                                                           juce::jlimit (1, numBins - 2, (numBins - 1) / 4),
                                                                            5.0f);
 
-    // Copied/ported concept from DtBlkFx HarmMatch/Saws (Darrell Tam; refactor lineage by skullzy):
-    // interpolate harmonic power table by UI value and scale masked harmonic regions toward those target powers.
+    // Copied/ported from DtBlkFx HarmMatchFx / HarmMatchProcess (Darrell Tam):
+    // interpolate harmonic power table by value and scale masked harmonic
+    // regions toward those target powers.
     const auto tablePosition = modeAmount * static_cast<float> (SawsCoefficients::numTables - 1);
     const auto firstCoefficient = lookupSawsCoefficient (tablePosition, 1.0f);
     const auto normaliser = juce::jmax (1.0e-7f, firstCoefficient);

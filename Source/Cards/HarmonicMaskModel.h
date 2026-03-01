@@ -135,23 +135,23 @@ inline void forEachMaskedRange (const HarmonicMaskGeometry& geometry,
 template <typename ComplexType>
 inline float estimateFractionalPeakBin (const ComplexType* bins, int centreBin)
 {
-    // Exact port of DtBlkFx EstFftBin (Darrell Tam).
+    // Fractional-bin estimator ported from DtBlkFx EstFftBin (fftw_support.cpp).
+    // Original algorithm: Darrell Tam.
     //
-    // Original variable naming (fftw_support.cpp):
-    //   t0 = fft[centre - 1]   (bin BEFORE centre)
-    //   t1 = fft[centre]       (CENTRE bin)
-    //   t2 = fft[centre + 1]   (bin AFTER centre)
-    //   d0 = t1 - t0           (centre minus previous)
-    //   d1 = t2 - t1           (next minus centre)
+    // Given the centre bin of a detected peak and its two neighbours, computes
+    // a sub-bin frequency estimate using amplitude-weighted cosine interpolation:
     //
-    // Weights use abs() (not norm()), and include both the outer-bin amplitude
-    // AND the magnitude of the bin difference — very different from using only
-    // the squared power of the centre/next bins that the previous implementation
-    // accidentally used.
+    //   t0 = bins[centre-1],  t1 = bins[centre],  t2 = bins[centre+1]
+    //   d0 = t1 - t0,         d1 = t2 - t1
     //
-    // f0 uses the PREVIOUS bin's amplitude; f1 uses the CENTRE bin's amplitude.
-    // Earlier code had these backwards (f0 used centre, f1 used next), which
-    // gave incorrect fractional-bin estimates and therefore wrong harmonic grids.
+    //   p0 = |t0|*0.4 + |d0|   (weight favouring left side)
+    //   p1 = |t2|*0.4 + |d1|   (weight favouring right side)
+    //   s  = smoothstep(p0 / (p0+p1))   controls left/right blend
+    //
+    //   f0 = |t0| / |d0| * cos(arg(t0) - arg(d0))   (left estimate)
+    //   f1 = 1 + |t1| / |d1| * cos(arg(t1) - arg(d1)) (right estimate, offset by 1)
+    //
+    //   result = centre + clamp(f0*s + f1*(1-s), -0.5, 0.5)
 
     const auto t_prev = (centreBin > 0)
                             ? bins[centreBin - 1]
@@ -197,8 +197,15 @@ inline float findPeakOrFundamentalBin (const ComplexType* bins,
                                        int maxBin,
                                        float estimateFundamental = 1.0f)
 {
-    // Copied/ported from DtBlkFx peak/fundamental finder behavior.
-    // Original author: Darrell Tam. Public refactor lineage reference: skullzy.
+    // Peak and fundamental estimator ported from DtBlkFx PeakFindFft
+    // (fftw_support.cpp). Original algorithm: Darrell Tam.
+    //
+    // 1. Scan [minBin..maxBin] for the bin with highest power (also checks
+    //    the half-bin between consecutive bins using a 90-degree rotation trick).
+    // 2. Refine to a fractional bin via estimateFractionalPeakBin.
+    // 3. If estimateFundamental > 1, test whether the peak is a harmonic of a
+    //    lower fundamental (checks divisors 2..estimateFundamental); if so,
+    //    returns the estimated fundamental bin instead.
     if (bins == nullptr || numBins <= 2)
         return static_cast<float> (juce::jmax (1, minBin));
 

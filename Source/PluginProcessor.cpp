@@ -77,43 +77,6 @@ std::vector<CognitoniBlkFxAudioProcessor::PresetDefinition> CognitoniBlkFxAudioP
     std::vector<PresetDefinition> defaults
     {
         {
-            "AutoHarm",
-            false,
-            {
-                { paramMasterWetDry, 1.0f }
-            },
-            {
-                makeCardValues (CardSchema::CardId::autoHarm,
-                                {
-                                    { CardSchema::Key::bypass, 0.0f },
-                                    // Original preset: amp=40dB → param=1.0 (not 0.598=-0.2dB)
-                                    { CardSchema::Key::wetDry, 1.0f },
-                                    { CardSchema::Key::amount, 0.3003f }, // original FX0_VAL=0.325 → SplitParam<4>: i_part=1(odd), f_part=0.3 width
-                                    { CardSchema::Key::type, 0.0f },
-                                    { CardSchema::Key::freqA, 0.245f },  // ~99 Hz
-                                    { CardSchema::Key::freqB, 1.0f }     // max freq
-                                }),
-                makeCardValues (CardSchema::CardId::contrast,
-                                {
-                                    { CardSchema::Key::bypass, 0.0f },
-                                    { CardSchema::Key::wetDry, 0.598f },
-                                    { CardSchema::Key::amount, 0.3005f },
-                                    { CardSchema::Key::type, 0.0f },
-                                    { CardSchema::Key::freqA, 0.0f },
-                                    { CardSchema::Key::freqB, 1.0f }
-                                }),
-                makeCardValues (CardSchema::CardId::saws,
-                                {
-                                    { CardSchema::Key::bypass, 1.0f },
-                                    { CardSchema::Key::wetDry, 1.0f },
-                                    { CardSchema::Key::amount, 0.45f },
-                                    { CardSchema::Key::type, 2.0f },
-                                    { CardSchema::Key::freqA, 0.0f },
-                                    { CardSchema::Key::freqB, 1.0f }
-                                })
-            }
-        },
-        {
             "Empty",
             false,
             {
@@ -143,6 +106,46 @@ std::vector<CognitoniBlkFxAudioProcessor::PresetDefinition> CognitoniBlkFxAudioP
                                     { CardSchema::Key::bypass, 1.0f },
                                     { CardSchema::Key::wetDry, 1.0f },
                                     { CardSchema::Key::amount, 0.0f },
+                                    { CardSchema::Key::type, 2.0f },
+                                    { CardSchema::Key::freqA, 0.0f },
+                                    { CardSchema::Key::freqB, 1.0f }
+                                })
+            }
+        },
+        {
+            "AutoHarm",
+            false,
+            {
+                { paramMasterWetDry, 1.0f }
+            },
+            {
+                makeCardValues (CardSchema::CardId::autoHarm,
+                                {
+                                    { CardSchema::Key::bypass, 0.0f },
+                                    // AutoHarm AMP = 1.0 → 40 dB (max). The original preset's
+                                    // harmonic amplitude is at maximum.
+                                    { CardSchema::Key::wetDry, 1.0f },
+                                    // SET0.FX_VAL=0.325 in original preset → SplitParam<4>: i_part=1 (odd), f_part=0.3 (30% width)
+                                    { CardSchema::Key::amount, 0.325f },
+                                    { CardSchema::Key::type, 0.0f },
+                                    { CardSchema::Key::freqA, 0.245f },  // SET0.FREQ_A=0.245 → ~100 Hz
+                                    { CardSchema::Key::freqB, 1.0f }     // SET0.FREQ_B=1.0 → Nyquist
+                                }),
+                makeCardValues (CardSchema::CardId::contrast,
+                                {
+                                    { CardSchema::Key::bypass, 0.0f },
+                                    // Contrast AMP=0.598 → -0.2 dB (original SET1.AMP)
+                                    { CardSchema::Key::wetDry, 0.598f },
+                                    { CardSchema::Key::amount, 0.3005f },
+                                    { CardSchema::Key::type, 0.0f },
+                                    { CardSchema::Key::freqA, 0.0f },
+                                    { CardSchema::Key::freqB, 1.0f }
+                                }),
+                makeCardValues (CardSchema::CardId::saws,
+                                {
+                                    { CardSchema::Key::bypass, 1.0f },
+                                    { CardSchema::Key::wetDry, 1.0f },
+                                    { CardSchema::Key::amount, 0.45f },
                                     { CardSchema::Key::type, 2.0f },
                                     { CardSchema::Key::freqA, 0.0f },
                                     { CardSchema::Key::freqB, 1.0f }
@@ -462,6 +465,10 @@ void CognitoniBlkFxAudioProcessor::prepareToPlay (double sampleRate, int samples
 
     const auto prepareChannels = juce::jmax (1, juce::jmax (getTotalNumInputChannels(), getTotalNumOutputChannels()));
     fftProcessor.prepare (sampleRate, prepareChannels);
+
+    // Report the fftSize latency introduced by the crossfade output approach.
+    // Mirrors original DtBlkFx: output ring (x3) is always fftSize ahead of input.
+    setLatencySamples (FFTProcessor::fftSize);
 
     FFTProcessor::Settings fftSettings;
     // 0.499 overlap: hop=2351 for N=4096 (42.6% overlap).
