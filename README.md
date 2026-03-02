@@ -1,6 +1,6 @@
 ﻿# CognitoniBlkFx
 
- <img width="1260" height="729" alt="kuva" src="https://github.com/user-attachments/assets/0b0a2ded-25ee-47a8-b0cb-ce5fd2875346" />
+<img width="762" height="681" alt="kuva" src="https://github.com/user-attachments/assets/161eda12-93fe-4023-900d-33c13474fa00" />
 
 CognitoniBlkFx is a spectral FX plugin built with JUCE, reimplementing the classic **DtBlkFx** by Darrell Tam. It uses the same crossfade-output block processing architecture as the original, operating on overlapping FFT frames without windowing.
 
