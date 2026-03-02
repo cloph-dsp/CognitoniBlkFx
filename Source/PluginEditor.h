@@ -139,19 +139,20 @@ private:
                   bool isButtonDown) override
         {
           auto bounds = getLocalBounds().toFloat().reduced (0.5f);
-          const auto base = juce::Colour::fromRGB (220, 225, 230);
-          const auto hover = juce::Colour::fromRGB (210, 217, 224);
-          const auto down = juce::Colour::fromRGB (198, 207, 216);
+          // Match the warm-cream main panel background
+          const auto bg    = juce::Colour::fromRGB (244, 240, 235);
+          const auto hover = juce::Colour::fromRGB (235, 231, 225);
+          const auto down  = juce::Colour::fromRGB (225, 221, 215);
 
-          g.setColour (isButtonDown ? down : (isMouseOverButton ? hover : base));
+          g.setColour (isButtonDown ? down : (isMouseOverButton ? hover : bg));
           g.fillRoundedRectangle (bounds, 8.0f);
-          g.setColour (juce::Colour::fromRGB (164, 173, 181));
+          g.setColour (juce::Colour::fromRGB (215, 210, 204));
           g.drawRoundedRectangle (bounds, 8.0f, 1.0f);
 
           if (drawable != nullptr)
           {
             auto iconBounds = bounds.reduced (7.0f).toNearestInt();
-            drawable->replaceColour (juce::Colours::black, juce::Colour::fromRGB (29, 35, 42));
+            drawable->replaceColour (juce::Colours::black, juce::Colour::fromRGB (100, 96, 92));
             drawable->drawWithin (g, iconBounds.toFloat(), juce::RectanglePlacement::centred, 1.0f);
           }
         }
@@ -206,13 +207,13 @@ private:
     juce::ComboBox  presetSelector;
     IconButton      savePresetButton  { "Save Preset"   };
     IconButton      deletePresetButton{ "Delete Preset" };
-    juce::Label     versionLabel;
+    juce::HyperlinkButton versionLabel;
     juce::Label     debugInfoLabel;
 
     // ── Cards ─────────────────────────────────────────────────────────────────
-    CardComponent autoHarmCard { "AutoHarm", juce::Colour::fromRGB (255, 178, 100) };
-    CardComponent contrastCard { "Contrast", juce::Colour::fromRGB (178, 145, 235) };
-    CardComponent sawsCard     { "Saws",     juce::Colour::fromRGB (100, 215, 178) };
+    CardComponent autoHarmCard { "AutoHarm", juce::Colour::fromRGB (255, 178, 100), CardComponent::CardIcon::autoHarm };
+    CardComponent contrastCard { "Contrast", juce::Colour::fromRGB (178, 145, 235), CardComponent::CardIcon::contrast };
+    CardComponent sawsCard     { "Saws",     juce::Colour::fromRGB (100, 215, 178), CardComponent::CardIcon::saws };
 
     // ── Right panel ───────────────────────────────────────────────────────────
     LevelMeterComponent inputLevelMeter;

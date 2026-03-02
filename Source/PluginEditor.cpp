@@ -112,8 +112,9 @@ CognitoniBlkFxAudioProcessorEditor::CardComponent::CardComponent (const juce::St
     addAndMakeVisible (title);
     title.setText (titleText, juce::dontSendNotification);
     title.setJustificationType (juce::Justification::centredLeft);
-    title.setFont (juce::FontOptions().withName ("Segoe UI").withHeight (11.5f).withStyle ("Bold"));
-    title.setColour (juce::Label::textColourId, juce::Colour::fromRGB (55, 52, 48));
+    title.setFont (juce::FontOptions().withName ("Segoe UI").withHeight (12.5f).withStyle ("SemiBold"));
+    title.setColour (juce::Label::textColourId, juce::Colour::fromRGB (38, 36, 33));
+    title.setText (titleText.toUpperCase(), juce::dontSendNotification);
 
     addAndMakeVisible (bypassButton);
     bypassButton.setButtonText (" ");
@@ -171,24 +172,22 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::paint (juce::Graphics& g
     g.setColour (juce::Colour::fromRGB (251, 249, 246));
     g.fillRoundedRectangle (bounds, r);
 
-    // Subtle border with slight accent tint
-    g.setColour (juce::Colour::fromRGB (218, 213, 207));
+    // Subtle border
+    g.setColour (juce::Colour::fromRGB (215, 210, 204));
     g.drawRoundedRectangle (bounds.reduced (0.5f), r, 1.0f);
 
-    // Thin accent top edge
-    const float topLineH = juce::jmax (2.5f, 3.0f * sf);
-    juce::Path topEdge;
-    topEdge.addRoundedRectangle (bounds.getX(), bounds.getY(),
-                                 bounds.getWidth(), topLineH + r,
-                                 r, r, true, true, false, false);
-    g.setColour (accent);
-    g.fillPath (topEdge);
-    g.fillRect (bounds.getX(), bounds.getY() + topLineH, bounds.getWidth(), r);
+    // Thin separator line below title row (reference card style)
+    const float titleRowH = std::round (28.0f * sf);
+    const float titleRowY = std::round (6.0f * sf);
+    const float sepY      = bounds.getY() + titleRowY + titleRowH + 1.0f;
+    const float sepInset  = std::round (14.0f * sf);
+    g.setColour (juce::Colour::fromRGB (225, 220, 214));
+    g.drawLine (bounds.getX() + sepInset, sepY, bounds.getRight() - sepInset, sepY, 1.0f);
 
     // Icon area background — dotted/subtle tinted panel
-    const float iconY    = juce::roundToInt (28.0f * sf) + juce::roundToInt (6.0f * sf);
-    const float iconH    = juce::roundToInt (80.0f * sf);
-    const float iconPadX = juce::roundToInt (16.0f * sf);
+    const float iconY    = std::round (28.0f * sf) + std::round (6.0f * sf);
+    const float iconH    = std::round (80.0f * sf);
+    const float iconPadX = std::round (16.0f * sf);
     auto iconRect = juce::Rectangle<float> (bounds.getX() + iconPadX, bounds.getY() + iconY,
                                             bounds.getWidth() - iconPadX * 2.0f, iconH);
 
@@ -227,27 +226,24 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::resized()
 
     const int W      = getWidth();
     const int padX   = juce::roundToInt (13.0f * sf);
-    const int hdrH   = juce::roundToInt (32.0f * sf);
     const int bypSz  = juce::roundToInt (20.0f * sf);
 
     // Update fonts proportionally on each resize
-    title.setFont          (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax (11.0f, 15.0f * sf)).withStyle ("Bold"));
+    title.setFont          (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax (10.0f, 13.0f * sf)));
     amountLabel.setFont    (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax (10.0f, 11.5f * sf)));
     wetDryLabel.setFont    (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax (10.0f, 11.5f * sf)));
     frequencyALabel.setFont(juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax  (9.0f, 11.0f * sf)));
     frequencyBLabel.setFont(juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax  (9.0f, 11.0f * sf)));
 
-    // ── Title row: dot (paint-only) + title label + bypass button ────────
+    // ── Title row: title label + bypass button ─────────────────────────
     const int titleRowH = juce::roundToInt (28.0f * sf);
-    const int dotSz     = juce::roundToInt ( 8.0f * sf);
-    const int dotX      = padX;
-    const int titleX    = padX + dotSz + juce::roundToInt (6.0f * sf);
+    const int titleX    = padX;
     const int bypX      = W - padX - bypSz;
     const int titleRowY = juce::roundToInt (6.0f * sf);
     bypassButton.setBounds (bypX, titleRowY + (titleRowH - bypSz) / 2, bypSz, bypSz);
-    // Dot is drawn in paint(); we store it as a field only to position the title
-    juce::ignoreUnused (dotX, dotSz);
     title.setBounds (titleX, titleRowY, bypX - titleX - 4, titleRowH);
+    // Also keep title uppercase when font rescales
+    title.setFont (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax (10.0f, 13.0f * sf)));
 
     // ── Icon panel ───────────────────────────────────────────
     int y       = titleRowY + titleRowH + juce::roundToInt (4.0f * sf);
@@ -297,116 +293,164 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::resized()
 void CognitoniBlkFxAudioProcessorEditor::CardComponent::drawAutoHarmIcon (
     juce::Graphics& g, juce::Rectangle<float> b, juce::Colour col)
 {
-    // Two-layer jagged frequency-spectrum silhouette
     const float w = b.getWidth(), h = b.getHeight();
     auto pt = [&] (float nx, float ny) { return juce::Point<float> (b.getX() + nx * w, b.getY() + ny * h); };
 
-    // Back layer (lighter)
+    // Filled back silhouette
     juce::Path back;
     back.startNewSubPath (pt (0.0f, 1.0f));
-    back.lineTo (pt (0.12f, 0.72f)); back.lineTo (pt (0.24f, 0.55f));
-    back.lineTo (pt (0.36f, 0.63f)); back.lineTo (pt (0.48f, 0.44f));
-    back.lineTo (pt (0.60f, 0.50f)); back.lineTo (pt (0.72f, 0.40f));
-    back.lineTo (pt (0.84f, 0.58f)); back.lineTo (pt (0.96f, 0.65f));
+    back.lineTo (pt (0.10f, 0.70f)); back.lineTo (pt (0.22f, 0.52f));
+    back.lineTo (pt (0.34f, 0.62f)); back.lineTo (pt (0.46f, 0.42f));
+    back.lineTo (pt (0.58f, 0.48f)); back.lineTo (pt (0.70f, 0.38f));
+    back.lineTo (pt (0.82f, 0.55f)); back.lineTo (pt (0.96f, 0.62f));
     back.lineTo (pt (1.0f,  1.0f));
-    g.setColour (col.withAlpha (0.30f));
-    g.strokePath (back, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    back.closeSubPath();
+    g.setColour (col.withAlpha (0.12f));
+    g.fillPath (back);
+    g.setColour (col.withAlpha (0.28f));
+    g.strokePath (back, juce::PathStrokeType (1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-    // Front layer (opaque)
+    // Front spectrum curve with filled area below
     juce::Path front;
     front.startNewSubPath (pt (0.0f, 1.0f));
-    front.lineTo (pt (0.08f, 0.62f)); front.lineTo (pt (0.16f, 0.42f));
-    front.lineTo (pt (0.22f, 0.52f)); front.lineTo (pt (0.30f, 0.24f));
-    front.lineTo (pt (0.36f, 0.08f)); front.lineTo (pt (0.42f, 0.20f));
-    front.lineTo (pt (0.50f, 0.32f)); front.lineTo (pt (0.56f, 0.16f));
-    front.lineTo (pt (0.64f, 0.30f)); front.lineTo (pt (0.70f, 0.44f));
-    front.lineTo (pt (0.76f, 0.34f)); front.lineTo (pt (0.82f, 0.54f));
-    front.lineTo (pt (0.90f, 0.48f)); front.lineTo (pt (0.96f, 0.62f));
+    front.lineTo (pt (0.08f, 0.60f));
+    front.lineTo (pt (0.16f, 0.40f));
+    front.lineTo (pt (0.22f, 0.50f));
+    front.lineTo (pt (0.30f, 0.22f));
+    front.lineTo (pt (0.36f, 0.07f));
+    front.lineTo (pt (0.42f, 0.18f));
+    front.lineTo (pt (0.50f, 0.30f));
+    front.lineTo (pt (0.56f, 0.14f));
+    front.lineTo (pt (0.64f, 0.28f));
+    front.lineTo (pt (0.70f, 0.42f));
+    front.lineTo (pt (0.76f, 0.32f));
+    front.lineTo (pt (0.83f, 0.52f));
+    front.lineTo (pt (0.90f, 0.46f));
+    front.lineTo (pt (0.96f, 0.60f));
     front.lineTo (pt (1.0f,  1.0f));
-    g.setColour (col.withAlpha (0.85f));
-    g.strokePath (front, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    front.closeSubPath();
+    // gradient fill under the curve
+    g.setGradientFill (juce::ColourGradient (col.withAlpha (0.30f), b.getTopLeft(),
+                                             col.withAlpha (0.04f), b.getBottomLeft(), false));
+    g.fillPath (front);
+    // stroke on top
+    g.setColour (col.withAlpha (0.90f));
+    juce::Path frontStroke;
+    frontStroke.startNewSubPath (pt (0.0f, 1.0f));
+    frontStroke.lineTo (pt (0.08f, 0.60f)); frontStroke.lineTo (pt (0.16f, 0.40f));
+    frontStroke.lineTo (pt (0.22f, 0.50f)); frontStroke.lineTo (pt (0.30f, 0.22f));
+    frontStroke.lineTo (pt (0.36f, 0.07f)); frontStroke.lineTo (pt (0.42f, 0.18f));
+    frontStroke.lineTo (pt (0.50f, 0.30f)); frontStroke.lineTo (pt (0.56f, 0.14f));
+    frontStroke.lineTo (pt (0.64f, 0.28f)); frontStroke.lineTo (pt (0.70f, 0.42f));
+    frontStroke.lineTo (pt (0.76f, 0.32f)); frontStroke.lineTo (pt (0.83f, 0.52f));
+    frontStroke.lineTo (pt (0.90f, 0.46f)); frontStroke.lineTo (pt (0.96f, 0.60f));
+    frontStroke.lineTo (pt (1.0f,  1.0f));
+    g.strokePath (frontStroke, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+    // Peak highlight dots at the top two peaks
+    for (auto [nx, ny] : { std::pair{0.36f, 0.07f}, std::pair{0.56f, 0.14f} })
+    {
+        auto peak = pt (nx, ny);
+        g.setColour (col);
+        g.fillEllipse (peak.x - 3.0f, peak.y - 3.0f, 6.0f, 6.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.7f));
+        g.fillEllipse (peak.x - 1.5f, peak.y - 1.5f, 3.0f, 3.0f);
+    }
 }
 
 void CognitoniBlkFxAudioProcessorEditor::CardComponent::drawContrastIcon (
     juce::Graphics& g, juce::Rectangle<float> b, juce::Colour col)
 {
-    // Four-wing geometric butterfly (two overlapping bow-tied triangles with inner cuts)
+    // 8-point starburst: alternating long and short rays from centre
     const float cx = b.getCentreX(), cy = b.getCentreY();
-    const float w2 = b.getWidth()  * 0.5f, h2 = b.getHeight() * 0.5f;
-    const float in = 0.22f; // inner gap
+    const float rLong  = juce::jmin (b.getWidth(), b.getHeight()) * 0.46f;
+    const float rShort = rLong * 0.40f;
+    const int   nRays  = 8;
 
-    g.setColour (col.withAlpha (0.80f));
-    const juce::PathStrokeType stroke (1.8f, juce::PathStrokeType::mitered, juce::PathStrokeType::square);
+    juce::Path star;
+    for (int i = 0; i < nRays * 2; ++i)
+    {
+        const float angle = juce::MathConstants<float>::twoPi * i / (nRays * 2)
+                            - juce::MathConstants<float>::halfPi;
+        const float r = (i % 2 == 0) ? rLong : rShort;
+        const auto  p = juce::Point<float> (cx + std::cos (angle) * r,
+                                            cy + std::sin (angle) * r);
+        if (i == 0) star.startNewSubPath (p);
+        else        star.lineTo (p);
+    }
+    star.closeSubPath();
 
-    // Top-left wing
-    juce::Path tl;
-    tl.startNewSubPath (cx, cy);
-    tl.lineTo (cx - w2, cy - h2); tl.lineTo (cx - w2 * 0.25f, cy - h2);
-    tl.lineTo (cx, cy);           tl.lineTo (cx - w2, cy - h2 * 0.25f);
-    tl.lineTo (cx - w2, cy - h2);
-    g.strokePath (tl, stroke);
+    // Semi-transparent fill
+    g.setColour (col.withAlpha (0.13f));
+    g.fillPath (star);
 
-    // Top-right wing (mirror of tl across vertical axis)
-    juce::Path tr;
-    tr.startNewSubPath (cx, cy);
-    tr.lineTo (cx + w2, cy - h2); tr.lineTo (cx + w2 * 0.25f, cy - h2);
-    tr.lineTo (cx, cy);           tr.lineTo (cx + w2, cy - h2 * 0.25f);
-    tr.lineTo (cx + w2, cy - h2);
-    g.strokePath (tr, stroke);
+    // Outline
+    g.setColour (col.withAlpha (0.85f));
+    g.strokePath (star, juce::PathStrokeType (1.8f, juce::PathStrokeType::mitered,
+                                              juce::PathStrokeType::square));
 
-    // Bottom-left wing
-    juce::Path bl;
-    bl.startNewSubPath (cx, cy);
-    bl.lineTo (cx - w2, cy + h2); bl.lineTo (cx - w2 * 0.25f, cy + h2);
-    bl.lineTo (cx, cy);           bl.lineTo (cx - w2, cy + h2 * 0.25f);
-    bl.lineTo (cx - w2, cy + h2);
-    g.strokePath (bl, stroke);
+    // Inner circle accent
+    const float innerR = rShort * 0.65f;
+    g.setColour (col.withAlpha (0.30f));
+    g.drawEllipse (cx - innerR, cy - innerR, innerR * 2.0f, innerR * 2.0f, 1.2f);
+    g.setColour (col.withAlpha (0.18f));
+    g.fillEllipse (cx - innerR, cy - innerR, innerR * 2.0f, innerR * 2.0f);
 
-    // Bottom-right wing
-    juce::Path br;
-    br.startNewSubPath (cx, cy);
-    br.lineTo (cx + w2, cy + h2); br.lineTo (cx + w2 * 0.25f, cy + h2);
-    br.lineTo (cx, cy);           br.lineTo (cx + w2, cy + h2 * 0.25f);
-    br.lineTo (cx + w2, cy + h2);
-    g.strokePath (br, stroke);
-
-    // Central X — short cross to suggest contrast meeting point
-    const float xs = w2 * in;
-    g.setColour (col.withAlpha (0.40f));
-    g.drawLine (cx - xs, cy - xs, cx + xs, cy + xs, 1.2f);
-    g.drawLine (cx + xs, cy - xs, cx - xs, cy + xs, 1.2f);
-
-    juce::ignoreUnused (in);
+    // Centre dot
+    g.setColour (col);
+    g.fillEllipse (cx - 2.5f, cy - 2.5f, 5.0f, 5.0f);
 }
 
 void CognitoniBlkFxAudioProcessorEditor::CardComponent::drawSawsIcon (
     juce::Graphics& g, juce::Rectangle<float> b, juce::Colour col)
 {
-    // Two parallel sawtooth waves (2.5 cycles each), side by side
     const float w = b.getWidth(), h = b.getHeight();
     auto pt = [&] (float nx, float ny) { return juce::Point<float> (b.getX() + nx * w, b.getY() + ny * h); };
 
-    const juce::PathStrokeType stroke (2.0f, juce::PathStrokeType::mitered, juce::PathStrokeType::square);
-    g.setColour (col.withAlpha (0.85f));
+    const juce::PathStrokeType stroke (2.2f, juce::PathStrokeType::mitered, juce::PathStrokeType::square);
+    const juce::PathStrokeType thinStroke (1.0f);
 
-    // Left sawtooth (x: 0.0 → 0.43, 2 full cycles)
-    juce::Path saw1;
-    saw1.startNewSubPath (pt (0.00f, 0.92f));
-    saw1.lineTo (pt (0.195f, 0.08f));
-    saw1.lineTo (pt (0.195f, 0.92f));
-    saw1.lineTo (pt (0.39f,  0.08f));
-    saw1.lineTo (pt (0.39f,  0.92f));
-    g.strokePath (saw1, stroke);
+    // Baseline (dashed — drawn as short segments)
+    g.setColour (col.withAlpha (0.25f));
+    const float baseY = 0.92f;
+    const float segW  = 0.05f;
+    for (float sx = 0.0f; sx < 1.0f; sx += segW * 2.0f)
+        g.drawLine (juce::Line<float> (pt (sx, baseY), pt (juce::jmin (sx + segW, 1.0f), baseY)), 1.0f);
 
-    // Right sawtooth (x: 0.57 → 1.0, 2 full cycles)
-    juce::Path saw2;
-    saw2.startNewSubPath (pt (0.57f, 0.92f));
-    saw2.lineTo (pt (0.765f, 0.08f));
-    saw2.lineTo (pt (0.765f, 0.92f));
-    saw2.lineTo (pt (0.96f,  0.08f));
-    saw2.lineTo (pt (0.96f,  0.92f));
-    g.strokePath (saw2, stroke);
+    // Helper to draw one filled sawtooth wave and its stroke
+    auto drawSaw = [&] (float x0, float x1, int cycles)
+    {
+        const float cycleW = (x1 - x0) / cycles;
+        juce::Path fill;
+        fill.startNewSubPath (pt (x0, baseY));
+        for (int c = 0; c < cycles; ++c)
+        {
+            const float xa = x0 + c * cycleW;
+            const float xb = xa + cycleW;
+            fill.lineTo (pt (xb - 0.001f, 0.08f));
+            fill.lineTo (pt (xb - 0.001f, baseY));
+        }
+        fill.closeSubPath();
+        g.setGradientFill (juce::ColourGradient (col.withAlpha (0.22f), b.getTopLeft(),
+                                                  col.withAlpha (0.04f), b.getBottomLeft(), false));
+        g.fillPath (fill);
 
+        juce::Path saw;
+        saw.startNewSubPath (pt (x0, baseY));
+        for (int c = 0; c < cycles; ++c)
+        {
+            const float xa = x0 + c * cycleW;
+            const float xb = xa + cycleW;
+            saw.lineTo (pt (xb - 0.001f, 0.08f));
+            saw.lineTo (pt (xb - 0.001f, baseY));
+        }
+        g.setColour (col.withAlpha (0.88f));
+        g.strokePath (saw, stroke);
+    };
+
+    drawSaw (0.02f, 0.44f, 2);
+    drawSaw (0.56f, 0.98f, 2);
+}
 
 void CognitoniBlkFxAudioProcessorEditor::configureAmountKnob (juce::Slider& slider)
 {
@@ -622,13 +666,16 @@ void CognitoniBlkFxAudioProcessorEditor::CognitoniLookAndFeel::drawToggleButton 
     auto bounds = button.getLocalBounds().toFloat().reduced (1.5f);
     const bool active = ! button.getToggleState();   // toggleState = bypassed
 
-    // White semi-transparent ring: always visible on any background
-    g.setColour (juce::Colours::white.withAlpha (0.55f));
+    // Retrieve the per-card accent colour stored in tickColourId
+    const auto accentCol = button.findColour (juce::ToggleButton::tickColourId);
+
+    // Ring: warm-dark border on light card background
+    g.setColour (juce::Colour::fromRGB (145, 140, 135));
     g.drawEllipse (bounds.reduced (0.5f), 1.5f);
 
-    // Inner dot: bright green when active, dim white when bypassed
-    auto inner = bounds.reduced (4.5f);
-    g.setColour (active ? juce::Colour::fromRGB (120, 240, 155) : juce::Colours::white.withAlpha (0.22f));
+    // Fill: accent colour when active, muted grey when bypassed
+    auto inner = bounds.reduced (3.5f);
+    g.setColour (active ? accentCol : juce::Colour::fromRGB (205, 200, 195));
     g.fillEllipse (inner);
 }
 
@@ -688,10 +735,10 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     };
     addAndMakeVisible (deletePresetButton);
 
-    versionLabel.setText ("v0.1.0alpha", juce::dontSendNotification);
-    versionLabel.setJustificationType (juce::Justification::centredRight);
-    versionLabel.setFont (juce::FontOptions().withName ("Segoe UI").withHeight (10.0f));
-    versionLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (148, 144, 138));
+    versionLabel.setButtonText ("v0.1.0alpha");
+    versionLabel.setURL (juce::URL ("https://github.com/toni-lyttinen/CognitoniBlkFx/tags"));
+    versionLabel.setFont (juce::Font (juce::FontOptions().withName ("Segoe UI").withHeight (10.0f)), false, juce::Justification::centred);
+    versionLabel.setColour (juce::HyperlinkButton::textColourId, juce::Colour::fromRGB (148, 144, 138));
     addAndMakeVisible (versionLabel);
 
     debugInfoLabel.setJustificationType (juce::Justification::centredRight);
@@ -746,10 +793,7 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     inputGainKnob.setTooltip  ("Input gain: -18 to +18 dB");
     outputGainKnob.setTooltip ("Output gain: -18 to +18 dB");
 
-    autoHarmCard.title.setColour (juce::Label::textColourId, juce::Colours::white);
-    contrastCard.title.setColour (juce::Label::textColourId, juce::Colours::white);
-    sawsCard.title.setColour    (juce::Label::textColourId, juce::Colours::white);
-    // dB / Value / frequency labels: use card's neutral tones (set in CardComponent ctor)
+    // Title colour is dark (set in CardComponent ctor); no override needed here.
 
     configureAmountKnob (autoHarmCard.amountKnob);
     configureAmountKnob (contrastCard.amountKnob);
@@ -758,8 +802,12 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     configureAmountKnob (contrastCard.wetDryKnob);
     configureAmountKnob (sawsCard.wetDryKnob);
     configureAmountKnob (masterWetDryKnob);
-    masterWetDryKnob.setSliderStyle (juce::Slider::LinearHorizontal);
-    masterWetDryKnob.setTextBoxStyle (juce::Slider::TextBoxRight, false, 76, 20);
+    masterWetDryKnob.setSliderStyle (juce::Slider::RotaryVerticalDrag);
+    masterWetDryKnob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 70, 14);
+    masterWetDryKnob.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour::fromRGB (135, 175, 215));
+    masterWetDryKnob.setColour (juce::Slider::textBoxTextColourId,       juce::Colour::fromRGB (175, 172, 165));
+    masterWetDryKnob.setColour (juce::Slider::textBoxOutlineColourId,    juce::Colours::transparentBlack);
+    masterWetDryKnob.setColour (juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
 
     configureRangeSlider (autoHarmCard.frequencyRangeSlider);
     configureRangeSlider (contrastCard.frequencyRangeSlider);
@@ -876,8 +924,8 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     masterWetDryKnob.updateText();
 
     setResizable (true, true);
-    setResizeLimits (720, 430, 1400, 860);
-    setSize (860, 520);
+    setResizeLimits (640, 640, 1200, 900);
+    setSize (760, 660);
     syncRangeSlidersFromParams();
     refreshFrequencyLabels();
     startTimerHz (20);
@@ -931,7 +979,7 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
     const float sf = juce::jlimit (0.55f, 2.0f, (float)getHeight() / 520.0f);
     pluginNameLabel.setFont (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax (16.0f, 28.0f * sf)).withStyle ("Bold"));
     presetLabel.setFont     (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax  (9.0f, 11.0f * sf)));
-    versionLabel.setFont    (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax  (8.5f, 10.5f * sf)));
+    versionLabel.setFont    (juce::Font (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax (8.5f, 10.5f * sf))), false, juce::Justification::centred);
     inputMeterLabel.setFont  (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax  (9.0f, 11.0f * sf)).withStyle ("Bold"));
     outputMeterLabel.setFont (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax  (9.0f, 11.0f * sf)).withStyle ("Bold"));
     masterWetDryLabel.setFont(juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax  (9.0f, 11.0f * sf)).withStyle ("Bold"));
@@ -943,9 +991,8 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
     // Split into left content + right panel
     auto full = getLocalBounds().reduced (margin);
 
-    // ── Footer (version/debug) ─────────────────────────────────────────────
+    // ── Footer (version label is inside right panel — see rp layout)
     auto footer = full.removeFromBottom (16);
-    versionLabel.setBounds (footer.removeFromRight (100));
     debugInfoLabel.setBounds (footer.removeFromLeft (juce::jmin (360, footer.getWidth())));
 
     // ── Right dark panel ────────────────────────────────────────────────────
@@ -1002,7 +1049,7 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
     rp.removeFromTop (3);
 
     // Gain knobs under column headers
-    const int gainKnobH = 54;  // rotary 40px + textbox 14px
+    const int gainKnobH = 66;  // rotary 52px + textbox 14px
     auto gainRow = rp.removeFromTop (gainKnobH);
     inputGainKnob.setBounds  (gainRow.removeFromLeft (colW));
     gainRow.removeFromLeft (8);
@@ -1010,8 +1057,9 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
     rp.removeFromTop (6);
 
     // Level meters: take remaining height minus mix area
-    const int mixAreaH = labelH + 4 + 44;
-    const int meterH   = rp.getHeight() - mixAreaH - 10;
+    const int mixKnobSz  = juce::jmin (rp.getWidth() - 8, 52);
+    const int mixAreaH   = labelH + 4 + mixKnobSz + 16;  // label + gap + rotary + textbox
+    const int meterH     = rp.getHeight() - mixAreaH - 10;
     auto metersArea = rp.removeFromTop (juce::jmax (30, meterH));
     inputLevelMeter.setBounds  (metersArea.removeFromLeft (colW));
     metersArea.removeFromLeft (8);
@@ -1019,12 +1067,15 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
 
     rp.removeFromTop (10);
 
-    // Mix label + vertical slider
+    // Mix label + rotary knob
     masterWetDryLabel.setBounds (rp.removeFromTop (labelH));
     rp.removeFromTop (4);
-    masterWetDryKnob.setSliderStyle (juce::Slider::LinearVertical);
-    masterWetDryKnob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, rp.getWidth(), 14);
-    masterWetDryKnob.setBounds (rp);
+    const int mixKnobH = mixKnobSz + 16;   // knob + textbox
+    auto mixArea = rp.removeFromTop (mixKnobH);
+    masterWetDryKnob.setBounds (mixArea.withSizeKeepingCentre (mixKnobSz + 16, mixKnobH));
+
+    // Version label centred at the bottom of the right panel
+    versionLabel.setBounds (rightPanel.removeFromBottom (16).reduced (4, 2));
 
     repaint();
 }
