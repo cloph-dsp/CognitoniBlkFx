@@ -31,7 +31,8 @@ AutoHarmCard::Settings AutoHarmCard::PresetManager::getProfile (Profile profile)
         default:
             settings.common.isBypassed = false;
             settings.common.wetDry = 1.0f;
-            settings.targetIntensity = 0.3f;
+            // SplitParam<4>: val=0.325 → scaled=1.3 → i_part=1 (odd), f_part=0.3 → "30% odd"
+            settings.targetIntensity = 0.325f;
             settings.harmonicType = SpectralHarmonicType::Odd;
             settings.searchBandHz.minHz = 0.0f;
             settings.searchBandHz.maxHz = 40000.0f;

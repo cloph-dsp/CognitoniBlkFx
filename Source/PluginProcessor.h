@@ -129,6 +129,8 @@ private:
 
     std::array<CardRuntimeParameters, 3> cardRuntimeParams;
     std::atomic<float>* masterWetDryParam = nullptr;
+    std::atomic<float>* inputGainParam    = nullptr;
+    std::atomic<float>* outputGainParam   = nullptr;
 
     FFTProcessor fftProcessor;
     std::vector<std::unique_ptr<SpectralCard>> cardRack;

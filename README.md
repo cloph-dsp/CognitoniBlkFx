@@ -26,37 +26,28 @@ Output ring: 3 × 4096 = 12288 samples
 ### Signal-flow diagram
 
 ```mermaid
-flowchart TB
-    IN([Input audio])
-    IN --> IBUF["Write to Input Ring\n(4096-sample circular buffer)"]
-    IBUF -->|"every 2351 samples (1 hop)"| FFT["Forward FFT\n(rectangular window, no windowing)"]
-    FFT --> UNPACK["Unpack 2049 complex bins"]
-    UNPACK --> IPWR["Measure inputPower\n(sum of |bin|²)"]
-    IPWR --> FX
+flowchart TD
+    IN([Input]) --> IGAIN[Input Gain]
+    IGAIN --> IBUF[Input Ring Buffer]
+    IBUF -->|every hop| FFT[Forward FFT]
+    FFT --> BINS[2049 complex bins]
+    BINS --> IPWR[Measure input power]
+    IPWR --> AH
 
-    subgraph FX ["Effects chain (per card, in order)"]
-        AH["AutoHarm\nFind peak / fundamental bin\nAmplify masked harmonic bins"]
-        CT["Contrast\nNonlinear spectral power curve\n(positive = sharpen, negative = flatten)"]
-        SW["Saws\nShape harmonics toward sawtooth profile\nScale or Copy mode"]
+    subgraph FX [Effects Chain]
+        AH[AutoHarm\nharmonic amplifier]
+        CT[Contrast\nspectral shaper]
+        SW[Saws\nharmonic profile]
         AH --> CT --> SW
     end
 
-    FX --> OPWR["Measure outputPower\n(sum of |bin|²)"]
-    OPWR --> NORM["Power normalise\npowerScale = sqrt(inputPower / outputPower)\n(port of DtBlkFx::procFFT, pwr_match=1)"]
-    NORM --> SCALE["Scale all bins by powerScale"]
-    SCALE --> IFFT["Inverse FFT → time-domain frame\n(4096 samples)"]
-
-    IFFT --> XFADE
-
-    subgraph XFADE ["Write to Output Ring (crossfade — mirrors DtBlkFx mixToX3)"]
-        OV["Overlap region (1745 samples)\nLinear crossfade: old × (1-t) + new × t"]
-        MC["Mid section (2351 samples)\nBlatant copy (overwrite)"]
-        OV --> MC
-    end
-
-    XFADE --> ORING["Output Ring Buffer\n(12288 samples, write pointer 4096 ahead of read)"]
-    ORING -->|"1 sample per block tick"| MIX["Master Wet/Dry blend\n(dry = unprocessed, wet = ring output)"]
-    MIX --> OUT([Output audio])
+    SW --> OPWR[Measure output power]
+    OPWR --> NORM[Power normalise\nsqrt in/out]
+    NORM --> IFFT[Inverse FFT]
+    IFFT --> XFADE[Crossfade into output ring]
+    XFADE --> MIX[Master Wet/Dry blend]
+    MIX --> OGAIN[Output Gain]
+    OGAIN --> OUT([Output])
 ```
 
 ## Effects
@@ -73,8 +64,10 @@ Shapes the harmonic content toward a sawtooth-wave profile using pre-computed co
 ## Features
 
 - Three spectral processing cards: **AutoHarm**, **Contrast**, **Saws**
-- Per-card bypass, frequency range (Freq A / Freq B), harmonic type selector, value, and dB mix controls
+- Per-card bypass, frequency range (Freq A / Freq B), harmonic type selector, value, and dB controls
+- Input and output gain trims (±18 dB)
 - Master Wet/Dry for global dry/processed blend
+- Proportionally scalable UI — resize the window and all text and controls scale with it
 - Built-in presets including the classic DtBlkFx AutoHarm preset with matching parameters
 - User presets saved to `%APPDATA%\CognitoniBlkFx\presets.json` (Windows)
 

@@ -251,7 +251,10 @@ void SawsCard::process (juce::dsp::Complex<float>* bins, int numBins)
 
             if (src0 <= src1 && v0 <= v1)
             {
-                const auto copyScale = std::sqrt (juce::jmax (0.0, targetPower));
+                // Port of DtBlkFx HarmMatchProcess copy mode:
+                // scale = sqrt(harm_pwr * pwr_scale) where pwr_scale already includes
+                // amp² (applied in prepare). No per-window source power normalisation.
+                const auto copyScale = std::sqrt (targetPower);
 
                 if (std::isfinite (copyScale))
                 {

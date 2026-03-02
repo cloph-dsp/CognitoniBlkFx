@@ -41,6 +41,8 @@ constexpr auto paramSawsBypass = sawsParams.bypass;
 constexpr auto paramSawsWetDry = sawsParams.wetDry;
 
 constexpr auto paramMasterWetDry = "masterWetDry";
+constexpr auto paramInputGain    = "inputGain";
+constexpr auto paramOutputGain   = "outputGain";
 
 constexpr float dtBlkC0Hz = 16.3516f;
 constexpr float dtBlkNoteSpan = 255.0f * 0.5f;
@@ -180,6 +182,8 @@ CognitoniBlkFxAudioProcessor::CognitoniBlkFxAudioProcessor()
 {
     bindRuntimeParameters();
     masterWetDryParam = apvts.getRawParameterValue (paramMasterWetDry);
+    inputGainParam    = apvts.getRawParameterValue (paramInputGain);
+    outputGainParam   = apvts.getRawParameterValue (paramOutputGain);
 
     presetDefinitions = createDefaultPresetDefinitions();
     loadPresetsFromJson();
@@ -550,6 +554,13 @@ void CognitoniBlkFxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
             buffer.clear (channel, 0, buffer.getNumSamples());
     }
 
+    // Input gain — apply before spectral processing so the dry copy also has the gain
+    const auto inputGainDb  = loadParamOr (inputGainParam, 0.0f);
+    const auto inputGainLin = juce::Decibels::decibelsToGain (inputGainDb, -60.0f);
+    if (std::abs (inputGainLin - 1.0f) > 1.0e-5f)
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            buffer.applyGain (ch, 0, buffer.getNumSamples(), inputGainLin);
+
     juce::AudioBuffer<float> dryBuffer;
     dryBuffer.makeCopyOf (buffer, true);
 
@@ -568,6 +579,13 @@ void CognitoniBlkFxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     if (! hasActiveCard)
     {
         applyMasterWetDryMix (buffer, dryBuffer);
+
+        // Output gain in bypass path too
+        const auto ogDb = loadParamOr (outputGainParam, 0.0f);
+        const auto ogLin = juce::Decibels::decibelsToGain (ogDb, -60.0f);
+        if (std::abs (ogLin - 1.0f) > 1.0e-5f)
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                buffer.applyGain (ch, 0, buffer.getNumSamples(), ogLin);
 
         double energy = 0.0;
         const auto channelsToUse = juce::jmin (buffer.getNumChannels(), dryBuffer.getNumChannels());
@@ -628,6 +646,13 @@ void CognitoniBlkFxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
 
     applyMasterWetDryMix (buffer, dryBuffer);
 
+    // Output gain — applied after the wet/dry blend
+    const auto outputGainDb  = loadParamOr (outputGainParam, 0.0f);
+    const auto outputGainLin = juce::Decibels::decibelsToGain (outputGainDb, -60.0f);
+    if (std::abs (outputGainLin - 1.0f) > 1.0e-5f)
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            buffer.applyGain (ch, 0, buffer.getNumSamples(), outputGainLin);
+
     double mixedEnergy = 0.0;
     for (int channel = 0; channel < channelsToUse; ++channel)
     {
@@ -648,13 +673,25 @@ void CognitoniBlkFxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
 juce::AudioProcessorValueTreeState::ParameterLayout CognitoniBlkFxAudioProcessor::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> parameters;
-    parameters.reserve (19);
+    parameters.reserve (21);
 
     parameters.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { paramMasterWetDry, 1 },
         "Master WetDry",
         juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f),
         1.0f));
+
+    parameters.push_back (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { paramInputGain, 1 },
+        "Input Gain",
+        juce::NormalisableRange<float> (-18.0f, 18.0f, 0.1f),
+        0.0f));
+
+    parameters.push_back (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { paramOutputGain, 1 },
+        "Output Gain",
+        juce::NormalisableRange<float> (-18.0f, 18.0f, 0.1f),
+        0.0f));
 
     parameters.push_back (std::make_unique<juce::AudioParameterBool> (
         juce::ParameterID { paramAutoHarmBypass, 1 },

@@ -28,33 +28,97 @@ public:
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
-  using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
+    using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
+    // ── Simple segmented VU meter (mono) ─────────────────────────────────────
+    class LevelMeterComponent : public juce::Component
+    {
+    public:
+        void setLevel (float rmsLinear) noexcept
+        {
+            const auto dBfs = rmsLinear > 1.0e-6f
+                                  ? 20.0f * std::log10 (rmsLinear)
+                                  : -60.0f;
+            currentLevel = juce::jlimit (0.0f, 1.0f, (dBfs + 60.0f) / 60.0f);
+            if (currentLevel >= peakLevel) { peakLevel = currentLevel; peakHold = 45; }
+            else if (peakHold > 0) --peakHold;
+            else peakLevel = juce::jmax (0.0f, peakLevel - 0.007f);
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            auto b = getLocalBounds().toFloat();
+            g.setColour (juce::Colour::fromRGB (22, 26, 32));
+            g.fillRoundedRectangle (b, 4.0f);
+
+            constexpr int segs = 14;
+            const float segH = (b.getHeight() - 6.0f) / segs;
+            const float segW = b.getWidth() - 6.0f;
+            const int lit = juce::roundToInt (currentLevel * segs);
+
+            for (int i = 0; i < segs; ++i)
+            {
+                const float sy = b.getBottom() - 3.0f - (i + 1) * segH + 1.5f;
+                juce::Colour c = (i >= segs - 2) ? juce::Colour::fromRGB (200, 70, 70)
+                               : (i >= segs - 4) ? juce::Colour::fromRGB (200, 175, 55)
+                                                 : juce::Colour::fromRGB (65, 185, 115);
+                g.setColour (i < lit ? c : c.withAlpha (0.14f));
+                g.fillRoundedRectangle (b.getX() + 3.0f, sy, segW, segH - 1.5f, 1.5f);
+            }
+
+            // peak hold dot
+            if (peakLevel > 0.02f)
+            {
+                const int ps = juce::jlimit (0, segs - 1,
+                               juce::roundToInt (peakLevel * segs) - 1);
+                const float py = b.getBottom() - 3.0f - (ps + 1) * segH + 1.5f;
+                juce::Colour pc = (ps >= segs - 2) ? juce::Colour::fromRGB (220, 90, 90)
+                                : (ps >= segs - 4) ? juce::Colour::fromRGB (220, 195, 70)
+                                                   : juce::Colour::fromRGB (80, 210, 130);
+                g.setColour (pc);
+                g.fillRoundedRectangle (b.getX() + 3.0f, py, segW, segH - 1.5f, 1.5f);
+            }
+        }
+
+    private:
+        float currentLevel = 0.0f;
+        float peakLevel    = 0.0f;
+        int   peakHold     = 0;
+    };
+
+    // ── Per-effect spectral card ───────────────────────────────────────────────
     class CardComponent : public juce::Component
     {
     public:
-      CardComponent (const juce::String& titleText,
-               const juce::String& amountLabelText,
-               juce::Colour backgroundColour,
-               juce::Colour accentColour);
+        enum class CardIcon { autoHarm, contrast, saws };
+
+        CardComponent (const juce::String& titleText,
+                       juce::Colour accentColour,
+                       CardIcon icon);
         void setHarmonicSelectorVisible (bool shouldShow);
         void resized() override;
         void paint (juce::Graphics& g) override;
 
-        juce::Label title;
+        // Public so editor can recolour/configure them
+        juce::Label        title;
         juce::ToggleButton bypassButton;
-        juce::Slider amountKnob;
-        juce::Label amountLabel;
-        juce::ComboBox harmonicType;
-        juce::Slider wetDryKnob;
-        juce::Label wetDryLabel;
-        juce::Slider frequencyRangeSlider;
-        juce::Label frequencyALabel;
-        juce::Label frequencyBLabel;
+        juce::Slider       amountKnob;     // dB / AMP control
+        juce::Label        amountLabel;    // "dB"
+        juce::ComboBox     harmonicType;
+        juce::Slider       wetDryKnob;     // value / intensity control
+        juce::Label        wetDryLabel;    // "Value"
+        juce::Slider       frequencyRangeSlider;
+        juce::Label        frequencyALabel;
+        juce::Label        frequencyBLabel;
 
-        juce::Colour cardBackground;
         juce::Colour accent;
+        CardIcon cardIcon;
         bool showHarmonicSelector = true;
+
+    private:
+        static void drawAutoHarmIcon (juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour col);
+        static void drawContrastIcon (juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour col);
+        static void drawSawsIcon     (juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour col);
     };
 
       class IconButton : public juce::Button
@@ -136,57 +200,61 @@ private:
     // access the processor object that created it.
     CognitoniBlkFxAudioProcessor& audioProcessor;
 
-    juce::Label presetLabel;
-    juce::ComboBox presetSelector;
-    IconButton savePresetButton { "Save Preset" };
-    IconButton deletePresetButton { "Delete Preset" };
-    juce::Label versionLabel;
-    juce::Label debugInfoLabel;
-    CardComponent autoHarmCard {
-      "AutoHarm", "Amplitude",
-      juce::Colour::fromRGB (227, 236, 248),
-      juce::Colour::fromRGB (74, 143, 214)
-    };
-    CardComponent contrastCard {
-      "Contrast", "Amplitude",
-      juce::Colour::fromRGB (241, 231, 247),
-      juce::Colour::fromRGB (170, 112, 214)
-    };
-    CardComponent sawsCard {
-      "Saws", "Amplitude",
-      juce::Colour::fromRGB (245, 237, 225),
-      juce::Colour::fromRGB (205, 134, 77)
-    };
-    juce::Slider masterWetDryKnob;
-    juce::Label masterWetDryLabel;
+    // ── Header ────────────────────────────────────────────────────────────────
+    juce::Label     pluginNameLabel;
+    juce::Label     presetLabel;
+    juce::ComboBox  presetSelector;
+    IconButton      savePresetButton  { "Save Preset"   };
+    IconButton      deletePresetButton{ "Delete Preset" };
+    juce::Label     versionLabel;
+    juce::Label     debugInfoLabel;
+
+    // ── Cards ─────────────────────────────────────────────────────────────────
+    CardComponent autoHarmCard { "AutoHarm", juce::Colour::fromRGB (255, 178, 100) };
+    CardComponent contrastCard { "Contrast", juce::Colour::fromRGB (178, 145, 235) };
+    CardComponent sawsCard     { "Saws",     juce::Colour::fromRGB (100, 215, 178) };
+
+    // ── Right panel ───────────────────────────────────────────────────────────
+    LevelMeterComponent inputLevelMeter;
+    LevelMeterComponent outputLevelMeter;
+    juce::Label         inputMeterLabel;
+    juce::Label         outputMeterLabel;
+    juce::Slider        inputGainKnob;
+    juce::Slider        outputGainKnob;
+    juce::Slider        masterWetDryKnob;
+    juce::Label         masterWetDryLabel;
+
     CognitoniLookAndFeel lookAndFeel;
 
-    std::unique_ptr<SliderAttachment> autoHarmAmountAttachment;
+    // ── APVTS attachments ─────────────────────────────────────────────────────
+    std::unique_ptr<SliderAttachment>   autoHarmAmountAttachment;
     std::unique_ptr<ComboBoxAttachment> autoHarmTypeAttachment;
-    std::unique_ptr<SliderAttachment> autoHarmWetDryAttachment;
-    std::unique_ptr<ButtonAttachment> autoHarmBypassAttachment;
+    std::unique_ptr<SliderAttachment>   autoHarmWetDryAttachment;
+    std::unique_ptr<ButtonAttachment>   autoHarmBypassAttachment;
 
-    std::unique_ptr<SliderAttachment> contrastAmountAttachment;
+    std::unique_ptr<SliderAttachment>   contrastAmountAttachment;
     std::unique_ptr<ComboBoxAttachment> contrastTypeAttachment;
-    std::unique_ptr<SliderAttachment> contrastWetDryAttachment;
-    std::unique_ptr<ButtonAttachment> contrastBypassAttachment;
+    std::unique_ptr<SliderAttachment>   contrastWetDryAttachment;
+    std::unique_ptr<ButtonAttachment>   contrastBypassAttachment;
 
-    std::unique_ptr<SliderAttachment> sawsAmountAttachment;
+    std::unique_ptr<SliderAttachment>   sawsAmountAttachment;
     std::unique_ptr<ComboBoxAttachment> sawsTypeAttachment;
-    std::unique_ptr<SliderAttachment> sawsWetDryAttachment;
-    std::unique_ptr<ButtonAttachment> sawsBypassAttachment;
+    std::unique_ptr<SliderAttachment>   sawsWetDryAttachment;
+    std::unique_ptr<ButtonAttachment>   sawsBypassAttachment;
 
-    std::unique_ptr<SliderAttachment> masterWetDryAttachment;
+    std::unique_ptr<SliderAttachment>   masterWetDryAttachment;
+    std::unique_ptr<SliderAttachment>   inputGainAttachment;
+    std::unique_ptr<SliderAttachment>   outputGainAttachment;
 
     std::atomic<float>* autoHarmMinFreqParam = nullptr;
     std::atomic<float>* autoHarmMaxFreqParam = nullptr;
-    std::atomic<float>* contrastMinFreqParam = nullptr;
-    std::atomic<float>* contrastMaxFreqParam = nullptr;
-    std::atomic<float>* sawsMinFreqParam = nullptr;
-    std::atomic<float>* sawsMaxFreqParam = nullptr;
+    std::atomic<float>* contrastMinFreqParam  = nullptr;
+    std::atomic<float>* contrastMaxFreqParam  = nullptr;
+    std::atomic<float>* sawsMinFreqParam      = nullptr;
+    std::atomic<float>* sawsMaxFreqParam      = nullptr;
 
     bool updatingRangeControls = false;
-    int lastAppliedPresetSelectorId = 0;
+    int  lastAppliedPresetSelectorId = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CognitoniBlkFxAudioProcessorEditor)
 };
