@@ -1,8 +1,6 @@
-/*
+﻿/*
   ==============================================================================
-
     This file contains the basic framework code for a JUCE plugin editor.
-
   ==============================================================================
 */
 
@@ -10,27 +8,26 @@
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "CardSchema.h"
 
 //==============================================================================
-/**
-*/
 class CognitoniBlkFxAudioProcessorEditor  : public juce::AudioProcessorEditor
                                            , private juce::Timer
+                                           , public juce::DragAndDropContainer
 {
 public:
     CognitoniBlkFxAudioProcessorEditor (CognitoniBlkFxAudioProcessor&);
     ~CognitoniBlkFxAudioProcessorEditor() override;
 
-    //==============================================================================
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseDown (const juce::MouseEvent& e) override;  // dismiss card picker on outside click
 
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-    using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
-    // ── Simple segmented VU meter (mono) ─────────────────────────────────────
+    //  Level meter 
     class LevelMeterComponent : public juce::Component
     {
     public:
@@ -65,12 +62,9 @@ private:
                 g.setColour (i < lit ? c : c.withAlpha (0.14f));
                 g.fillRoundedRectangle (b.getX() + 3.0f, sy, segW, segH - 1.5f, 1.5f);
             }
-
-            // peak hold dot
             if (peakLevel > 0.02f)
             {
-                const int ps = juce::jlimit (0, segs - 1,
-                               juce::roundToInt (peakLevel * segs) - 1);
+                const int ps = juce::jlimit (0, segs - 1, juce::roundToInt (peakLevel * segs) - 1);
                 const float py = b.getBottom() - 3.0f - (ps + 1) * segH + 1.5f;
                 juce::Colour pc = (ps >= segs - 2) ? juce::Colour::fromRGB (220, 90, 90)
                                 : (ps >= segs - 4) ? juce::Colour::fromRGB (220, 195, 70)
@@ -79,53 +73,113 @@ private:
                 g.fillRoundedRectangle (b.getX() + 3.0f, py, segW, segH - 1.5f, 1.5f);
             }
         }
-
     private:
         float currentLevel = 0.0f;
         float peakLevel    = 0.0f;
         int   peakHold     = 0;
     };
 
-    // ── Per-effect spectral card ───────────────────────────────────────────────
-    class CardComponent : public juce::Component
+    //  Slider subclass with public text-box refresh 
+    class KnobSlider : public juce::Slider
     {
     public:
-        enum class CardIcon { autoHarm, contrast, saws };
+        KnobSlider() = default;
+        /** Force the text box label to re-render using the current textFromValueFunction. */
+        void forceTextBoxUpdate() { updateText(); }
+    };
 
-        CardComponent (const juce::String& titleText,
-                       juce::Colour accentColour,
-                       CardIcon icon);
-        void setHarmonicSelectorVisible (bool shouldShow);
-        void resized() override;
-        void paint (juce::Graphics& g) override;
+    //  Card-picker modal overlay 
+    class CardPickerOverlay : public juce::Component
+    {
+    public:
+        CardPickerOverlay();
+        void paint (juce::Graphics&) override;
+        void mouseMove  (const juce::MouseEvent&) override;
+        void mouseExit  (const juce::MouseEvent&) override;
+        void mouseUp    (const juce::MouseEvent&) override;
+        void mouseDown  (const juce::MouseEvent&) override;
 
-        // Public so editor can recolour/configure them
-        juce::Label        title;
-        juce::ToggleButton bypassButton;
-        juce::Slider       amountKnob;     // dB / AMP control
-        juce::Label        amountLabel;    // "dB"
-        juce::ComboBox     harmonicType;
-        juce::Slider       wetDryKnob;     // value / intensity control
-        juce::Label        wetDryLabel;    // "Value"
-        juce::Slider       frequencyRangeSlider;
-        juce::Label        frequencyALabel;
-        juce::Label        frequencyBLabel;
+        std::function<void (CardSchema::CardType)> onCardChosen;
+        std::function<void()>                      onDismiss;
 
-        juce::Colour accent;
-        CardIcon cardIcon;
-        bool showHarmonicSelector = true;
+        juce::Rectangle<float> popupRect;  // set by showCardPickerModal; items are relative to this
 
     private:
+        int hoveredItem = -1;
+        juce::Rectangle<float> itemRect (int idx) const;
+    };
+
+    //  Generic slot card component 
+    class CardComponent : public juce::Component
+                        , public juce::DragAndDropTarget
+    {
+    public:
+        CardComponent();
+
+        // Set the card type and update all visual/control state accordingly
+        void setCardType (CardSchema::CardType newType, const juce::String& titleText = {});
+        CardSchema::CardType getCardType() const noexcept { return currentCardType; }
+
+        void resized() override;
+        void paint   (juce::Graphics& g) override;
+
+        // Mouse event overrides
+        void mouseEnter (const juce::MouseEvent&) override;
+        void mouseExit  (const juce::MouseEvent&) override;
+        void mouseDown  (const juce::MouseEvent&) override;
+        void mouseDrag  (const juce::MouseEvent&) override;
+        void mouseUp    (const juce::MouseEvent&) override;
+
+        // DragAndDropTarget
+        bool isInterestedInDragSource (const SourceDetails& details) override;
+        void itemDragEnter (const SourceDetails& details) override;
+        void itemDragExit  (const SourceDetails& details) override;
+        void itemDropped   (const SourceDetails& details) override;
+
+        // Controls that the editor wires to APVTS (public for access by editor)
+        juce::Label        title;
+        juce::ToggleButton bypassButton;
+        KnobSlider         amountKnob;
+        juce::Label        amountHeaderLabel;   // "dB"  above knob
+        juce::Slider       harmonicType;        // Rotary knob for harmonic type (0=Odd,1=Even,2=Both,3=Between)
+        juce::Label        harmonicTypeLabel;   // "Type" header + current value text
+        KnobSlider         wetDryKnob;
+        juce::Label        wetDryHeaderLabel;   // "Value" above knob
+        juce::TextButton   removeButton;        // ""  shown when filled
+
+        juce::Slider       frequencyRangeSlider;
+        juce::Label        freqStartHeader;    // "Start" ABOVE slider
+        juce::Label        freqEndHeader;      // "End"   ABOVE slider
+        juce::Label        frequencyALabel;    // value below left
+        juce::Label        frequencyBLabel;    // value below right
+
+        juce::Colour       accent { juce::Colour::fromRGB (185, 180, 172) };
+
+        // Callbacks: whole-card click to open picker, drag-reorder between slots
+        std::function<void()>        onAddCardClicked;
+        std::function<void(int,int)> onDragReorder;    // (srcSlot, dstSlot)
+        int slotIndex = -1;
+
         static void drawAutoHarmIcon (juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour col);
         static void drawContrastIcon (juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour col);
         static void drawSawsIcon     (juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour col);
+        static void drawSmearIcon    (juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour col);
+
+    private:
+        CardSchema::CardType currentCardType = CardSchema::CardType::empty;
+        bool isHovered    = false;  // Hover state for empty card
+        bool isDragTarget = false;  // Highlight when valid drag hovers over
+        bool canStartDrag = false;  // Set in mouseDown if pointer is in title row
+        bool dragStarted  = false;  // Drag initiated flag
+
+        void showFilledControls (bool show);
     };
 
-      class IconButton : public juce::Button
-      {
-      public:
-        IconButton (const juce::String& buttonName)
-          : juce::Button (buttonName) {}
+    //  Icon button 
+    class IconButton : public juce::Button
+    {
+    public:
+        IconButton (const juce::String& buttonName) : juce::Button (buttonName) {}
 
         void setSvgIcon (const juce::String& svgText)
         {
@@ -134,36 +188,43 @@ private:
                 drawable = juce::Drawable::createFromSVG (*svgXml);
         }
 
-        void paintButton (juce::Graphics& g,
-                  bool isMouseOverButton,
-                  bool isButtonDown) override
+        void paintButton (juce::Graphics& g, bool isMouseOverButton, bool isButtonDown) override
         {
-          auto bounds = getLocalBounds().toFloat().reduced (0.5f);
-          // Match the warm-cream main panel background
-          const auto bg    = juce::Colour::fromRGB (244, 240, 235);
-          const auto hover = juce::Colour::fromRGB (235, 231, 225);
-          const auto down  = juce::Colour::fromRGB (225, 221, 215);
+            auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+            const bool en = isEnabled();
+            juce::Colour fill;
+            if      (!en)              fill = juce::Colour::fromRGB (200, 195, 188);  // disabled: slightly darker
+            else if (isButtonDown)     fill = juce::Colour::fromRGB (192, 187, 180);  // pressed
+            else if (isMouseOverButton)fill = juce::Colour::fromRGB (212, 207, 200);  // hover
+            else                       fill = juce::Colour::fromRGB (225, 220, 214);  // normal: matches header bg
 
-          g.setColour (isButtonDown ? down : (isMouseOverButton ? hover : bg));
-          g.fillRoundedRectangle (bounds, 8.0f);
-          g.setColour (juce::Colour::fromRGB (215, 210, 204));
-          g.drawRoundedRectangle (bounds, 8.0f, 1.0f);
+            g.setColour (fill);
+            g.fillRoundedRectangle (bounds, 8.0f);
 
-          if (drawable != nullptr)
-          {
-            auto iconBounds = bounds.reduced (7.0f).toNearestInt();
-            drawable->replaceColour (juce::Colours::black, juce::Colour::fromRGB (100, 96, 92));
-            drawable->drawWithin (g, iconBounds.toFloat(), juce::RectanglePlacement::centred, 1.0f);
-          }
+            if (en && (isMouseOverButton || isButtonDown))
+            {
+                g.setColour (juce::Colour::fromRGB (185, 180, 172).withAlpha (0.6f));
+                g.drawRoundedRectangle (bounds, 8.0f, 1.0f);
+            }
+
+            if (drawable != nullptr)
+            {
+                const float alpha    = en ? 1.0f : 0.4f;
+                const auto  iconCol  = juce::Colour::fromRGB (70, 68, 64).withAlpha (alpha);
+                auto iconBounds = bounds.reduced (7.0f).toNearestInt();
+                drawable->replaceColour (juce::Colours::black, iconCol);
+                drawable->replaceColour (juce::Colour::fromRGB (190, 198, 212), iconCol);
+                drawable->drawWithin (g, iconBounds.toFloat(), juce::RectanglePlacement::centred, alpha);
+            }
         }
-
-      private:
+    private:
         std::unique_ptr<juce::Drawable> drawable;
-      };
+    };
 
-      class CognitoniLookAndFeel final : public juce::LookAndFeel_V4
-      {
-      public:
+    //  Look and feel 
+    class CognitoniLookAndFeel final : public juce::LookAndFeel_V4
+    {
+    public:
         CognitoniLookAndFeel();
 
         void drawRotarySlider (juce::Graphics&, int x, int y, int width, int height,
@@ -178,44 +239,48 @@ private:
                    int buttonX, int buttonY, int buttonW, int buttonH,
                    juce::ComboBox&) override;
 
-        void drawToggleButton (juce::Graphics&, juce::ToggleButton&, bool shouldDrawButtonAsHighlighted,
-                   bool shouldDrawButtonAsDown) override;
+        void drawToggleButton (juce::Graphics&, juce::ToggleButton&,
+                   bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override;
 
         juce::Label* createSliderTextBox (juce::Slider&) override;
-      };
+    };
 
+    //  Helpers 
     static void configureAmountKnob (juce::Slider& slider);
-      static void configureRangeSlider (juce::Slider& slider);
+    static void configureRangeSlider (juce::Slider& slider);
     juce::String normalisedToHzText (double normalisedValue) const;
-      static juce::String normalisedToPercentText (double normalisedValue);
-      void syncRangeSlidersFromParams();
-      void pushRangeSliderToParams();
-      void setParameterNormalised (const juce::String& parameterId, float value);
+    static juce::String normalisedToPercentText (double normalisedValue);
+    void syncRangeSlidersFromParams();
+    void pushRangeSliderToParams();
+    void setParameterNormalised (const juce::String& parameterId, float value);
     void timerCallback() override;
     void refreshFrequencyLabels();
     void refreshPresetSelectorItems();
     void showSavePresetDialog();
     void showDeletePresetDialog();
+    void rebuildSlotAttachments (int slotIndex);
+    void showCardPickerModal (int slotIndex);
+    void randomizeCards();
 
-    // This reference is provided as a quick way for your editor to
-    // access the processor object that created it.
     CognitoniBlkFxAudioProcessor& audioProcessor;
 
-    // ── Header ────────────────────────────────────────────────────────────────
+    //  Header 
     juce::Label     pluginNameLabel;
     juce::Label     presetLabel;
     juce::ComboBox  presetSelector;
     IconButton      savePresetButton  { "Save Preset"   };
     IconButton      deletePresetButton{ "Delete Preset" };
+    IconButton      randomizeButton   { "Randomize"     };
     juce::HyperlinkButton versionLabel;
-    juce::Label     debugInfoLabel;
+    // debugInfoLabel removed
 
-    // ── Cards ─────────────────────────────────────────────────────────────────
-    CardComponent autoHarmCard { "AutoHarm", juce::Colour::fromRGB (255, 178, 100), CardComponent::CardIcon::autoHarm };
-    CardComponent contrastCard { "Contrast", juce::Colour::fromRGB (178, 145, 235), CardComponent::CardIcon::contrast };
-    CardComponent sawsCard     { "Saws",     juce::Colour::fromRGB (100, 215, 178), CardComponent::CardIcon::saws };
+    //  3 slot cards 
+    std::array<CardComponent, CardSchema::numSlots> slotCards;
 
-    // ── Right panel ───────────────────────────────────────────────────────────
+    //  Card picker overlay (shown modally when "+" clicked) 
+    std::unique_ptr<CardPickerOverlay> cardPickerOverlay;
+
+    //  Right panel 
     LevelMeterComponent inputLevelMeter;
     LevelMeterComponent outputLevelMeter;
     juce::Label         inputMeterLabel;
@@ -224,35 +289,35 @@ private:
     juce::Slider        outputGainKnob;
     juce::Slider        masterWetDryKnob;
     juce::Label         masterWetDryLabel;
+    KnobSlider          blackLensKnob;
+    juce::Label         blackLensLabel;
+
+    // Cached right-panel bounds (used in paint and resized for consistent alignment)
+    juce::Rectangle<int> rightPanelRect;
 
     CognitoniLookAndFeel lookAndFeel;
 
-    // ── APVTS attachments ─────────────────────────────────────────────────────
-    std::unique_ptr<SliderAttachment>   autoHarmAmountAttachment;
-    std::unique_ptr<ComboBoxAttachment> autoHarmTypeAttachment;
-    std::unique_ptr<SliderAttachment>   autoHarmWetDryAttachment;
-    std::unique_ptr<ButtonAttachment>   autoHarmBypassAttachment;
-
-    std::unique_ptr<SliderAttachment>   contrastAmountAttachment;
-    std::unique_ptr<ComboBoxAttachment> contrastTypeAttachment;
-    std::unique_ptr<SliderAttachment>   contrastWetDryAttachment;
-    std::unique_ptr<ButtonAttachment>   contrastBypassAttachment;
-
-    std::unique_ptr<SliderAttachment>   sawsAmountAttachment;
-    std::unique_ptr<ComboBoxAttachment> sawsTypeAttachment;
-    std::unique_ptr<SliderAttachment>   sawsWetDryAttachment;
-    std::unique_ptr<ButtonAttachment>   sawsBypassAttachment;
+    //  APVTS attachments (per slot) 
+    struct SlotAttachments
+    {
+        std::unique_ptr<SliderAttachment>   amount;
+        std::unique_ptr<SliderAttachment>   harmType;   // Harmonic type slider attachment
+        std::unique_ptr<SliderAttachment>   wetDry;
+        std::unique_ptr<ButtonAttachment>   bypass;
+    };
+    std::array<SlotAttachments, CardSchema::numSlots> slotAttachments;
 
     std::unique_ptr<SliderAttachment>   masterWetDryAttachment;
     std::unique_ptr<SliderAttachment>   inputGainAttachment;
     std::unique_ptr<SliderAttachment>   outputGainAttachment;
+    std::unique_ptr<SliderAttachment>   blackLensAttachment;
 
-    std::atomic<float>* autoHarmMinFreqParam = nullptr;
-    std::atomic<float>* autoHarmMaxFreqParam = nullptr;
-    std::atomic<float>* contrastMinFreqParam  = nullptr;
-    std::atomic<float>* contrastMaxFreqParam  = nullptr;
-    std::atomic<float>* sawsMinFreqParam      = nullptr;
-    std::atomic<float>* sawsMaxFreqParam      = nullptr;
+    // Raw param pointers for freq range sliders (not attached via SliderAttachment
+    // because TwoValueHorizontal requires manual sync)
+    std::array<std::atomic<float>*, CardSchema::numSlots> slotFreqAParams { nullptr, nullptr, nullptr };
+    std::array<std::atomic<float>*, CardSchema::numSlots> slotFreqBParams { nullptr, nullptr, nullptr };
+
+    std::array<int, CardSchema::numSlots> lastKnownCardTypes { -1, -1, -1 };
 
     bool updatingRangeControls = false;
     int  lastAppliedPresetSelectorId = 0;

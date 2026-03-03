@@ -8,25 +8,53 @@
 
 namespace
 {
-int overlapToHopSamples (float overlapAmount)
+int overlapToHopSamples (float overlapAmount, int fftSize)
 {
     const auto amount = juce::jlimit (0.0f, 1.0f, overlapAmount);
     const auto hop = static_cast<int> (juce::jmap (amount,
-                                                   static_cast<float> (FFTProcessor::fftSize - 16),
-                                                   static_cast<float> (FFTProcessor::fftSize) * 0.15f));
-    return juce::jlimit (32, FFTProcessor::fftSize - 16, hop);
+                                                   static_cast<float> (fftSize - 16),
+                                                   static_cast<float> (fftSize) * 0.15f));
+    return juce::jlimit (32, fftSize - 16, hop);
 }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 FFTProcessor::FFTProcessor()
 {
-    fftTimeDomain.resize (fftSize, 0.0f);
-    fftPacked.resize (2 * fftSize, 0.0f);
-    bins.resize (static_cast<size_t> (fftSize / 2 + 1));
+    fft = std::make_unique<juce::dsp::FFT> (defaultFftOrder);
+    fftTimeDomain.resize (defaultFftSize, 0.0f);
+    fftPacked.resize (2 * defaultFftSize, 0.0f);
+    bins.resize (static_cast<size_t> (defaultFftSize / 2 + 1));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+void FFTProcessor::rebuildFft (int newOrder)
+{
+    currentFftOrder       = juce::jlimit (8, 17, newOrder);
+    currentFftSize        = 1 << currentFftOrder;
+    currentOutputRingSize = 3 * currentFftSize;
+
+    fft = std::make_unique<juce::dsp::FFT> (currentFftOrder);
+    fftTimeDomain.assign (static_cast<size_t> (currentFftSize),      0.0f);
+    fftPacked.assign     (static_cast<size_t> (2 * currentFftSize),  0.0f);
+    bins.resize          (static_cast<size_t> (currentFftSize / 2 + 1));
+    std::fill (bins.begin(), bins.end(), juce::dsp::Complex<float> (0.0f, 0.0f));
+
+    currentHopSize = overlapToHopSamples (0.499f, currentFftSize);
+
+    for (auto& ch : channels)
+    {
+        ch.inputRing.assign  (static_cast<size_t> (currentFftSize),        0.0f);
+        ch.outputRing.assign (static_cast<size_t> (currentOutputRingSize), 0.0f);
+        ch.inputWritePos  = 0;
+        ch.outputReadPos  = 0;
+        ch.outputWritePos = currentFftSize;
+        ch.hopCounter     = 0;
+        ch.powerScale     = 1.0f;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────
 void FFTProcessor::prepare (double sampleRate, int numChannels)
 {
     currentSampleRate = juce::jmax (1.0, sampleRate);
@@ -34,11 +62,11 @@ void FFTProcessor::prepare (double sampleRate, int numChannels)
     channels.resize (static_cast<size_t> (juce::jmax (1, numChannels)));
     for (auto& ch : channels)
     {
-        ch.inputRing.assign (fftSize, 0.0f);
-        ch.outputRing.assign (outputRingSize, 0.0f);
+        ch.inputRing.assign  (static_cast<size_t> (currentFftSize),        0.0f);
+        ch.outputRing.assign (static_cast<size_t> (currentOutputRingSize), 0.0f);
         ch.inputWritePos  = 0;
         ch.outputReadPos  = 0;
-        ch.outputWritePos = fftSize;
+        ch.outputWritePos = currentFftSize;
         ch.hopCounter     = 0;
         ch.powerScale     = 1.0f;
     }
@@ -53,7 +81,7 @@ void FFTProcessor::reset()
         std::fill (ch.outputRing.begin(), ch.outputRing.end(), 0.0f);
         ch.inputWritePos  = 0;
         ch.outputReadPos  = 0;
-        ch.outputWritePos = fftSize;
+        ch.outputWritePos = currentFftSize;
         ch.hopCounter     = 0;
         ch.powerScale     = 1.0f;
     }
@@ -64,7 +92,11 @@ void FFTProcessor::reset()
 // ─────────────────────────────────────────────────────────────────────────────
 void FFTProcessor::setSettings (const Settings& newSettings)
 {
-    currentHopSize = overlapToHopSamples (newSettings.overlapAmount);
+    const int clampedOrder = juce::jlimit (8, 17, newSettings.fftOrder);
+    if (clampedOrder != currentFftOrder)
+        rebuildFft (clampedOrder);
+
+    currentHopSize = overlapToHopSamples (newSettings.overlapAmount, currentFftSize);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -85,9 +117,9 @@ void FFTProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
         for (int s = 0; s < numSamples; ++s)
         {
-            ch.inputRing[static_cast<size_t> (ch.inputWritePos % fftSize)] = samples[s];
+            ch.inputRing[static_cast<size_t> (ch.inputWritePos % currentFftSize)] = samples[s];
 
-            const auto readIdx = static_cast<size_t> (ch.outputReadPos % outputRingSize);
+            const auto readIdx = static_cast<size_t> (ch.outputReadPos % currentOutputRingSize);
             samples[s] = ch.outputRing[readIdx];
             ch.outputRing[readIdx] = 0.0f;
 
@@ -110,16 +142,16 @@ void FFTProcessor::processFrameForChannel (ChannelState& ch,
 {
     const int numBins = static_cast<int> (bins.size());
 
-    const int readStart = ch.inputWritePos - fftSize;
-    for (int i = 0; i < fftSize; ++i)
+    const int readStart = ch.inputWritePos - currentFftSize;
+    for (int i = 0; i < currentFftSize; ++i)
     {
-        const int src = ((readStart + i) % fftSize + fftSize) % fftSize;
+        const int src = ((readStart + i) % currentFftSize + currentFftSize) % currentFftSize;
         fftTimeDomain[static_cast<size_t> (i)] = ch.inputRing[static_cast<size_t> (src)];
     }
 
     std::fill (fftPacked.begin(), fftPacked.end(), 0.0f);
     std::copy (fftTimeDomain.begin(), fftTimeDomain.end(), fftPacked.begin());
-    fft.performRealOnlyForwardTransform (fftPacked.data());
+    fft->performRealOnlyForwardTransform (fftPacked.data());
 
     bins[0] = { fftPacked[0], 0.0f };
     bins[static_cast<size_t> (numBins - 1)] = { fftPacked[1], 0.0f };
@@ -161,28 +193,28 @@ void FFTProcessor::processFrameForChannel (ChannelState& ch,
         fftPacked[static_cast<size_t> (2 * b)]     = bins[static_cast<size_t> (b)].real();
         fftPacked[static_cast<size_t> (2 * b + 1)] = bins[static_cast<size_t> (b)].imag();
     }
-    fft.performRealOnlyInverseTransform (fftPacked.data());
+    fft->performRealOnlyInverseTransform (fftPacked.data());
 
     // Write to output ring — port of DtBlkFx::mixToX3:
     //   overlap region: linear crossfade (old→new)
     //   mid section:    blatant copy
-    const int overlapLen = fftSize - currentHopSize;
+    const int overlapLen = currentFftSize - currentHopSize;
     const int outStart   = ch.outputWritePos;
 
     for (int i = 0; i < overlapLen; ++i)
     {
         const float t   = static_cast<float> (i) / static_cast<float> (juce::jmax (1, overlapLen - 1));
-        const int pos   = (outStart + i) % outputRingSize;
+        const int pos   = (outStart + i) % currentOutputRingSize;
         ch.outputRing[static_cast<size_t> (pos)] =
             ch.outputRing[static_cast<size_t> (pos)] * (1.0f - t)
             + fftPacked[static_cast<size_t> (i)] * t;
     }
 
-    for (int i = overlapLen; i < fftSize; ++i)
+    for (int i = overlapLen; i < currentFftSize; ++i)
     {
-        const int pos = (outStart + i) % outputRingSize;
+        const int pos = (outStart + i) % currentOutputRingSize;
         ch.outputRing[static_cast<size_t> (pos)] = fftPacked[static_cast<size_t> (i)];
     }
 
-    ch.outputWritePos = (outStart + currentHopSize) % outputRingSize;
+    ch.outputWritePos = (outStart + currentHopSize) % currentOutputRingSize;
 }

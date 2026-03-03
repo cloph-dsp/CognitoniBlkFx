@@ -6,14 +6,14 @@
 class FFTProcessor
 {
 public:
-    static constexpr int fftOrder = 12;
-    static constexpr int fftSize  = 1 << fftOrder;  // 4096
-
-    static constexpr int outputRingSize = 3 * fftSize;
+    // Compile-time defaults — used as fallback and initial values.
+    static constexpr int defaultFftOrder = 12;
+    static constexpr int defaultFftSize  = 1 << defaultFftOrder;  // 4096
 
     struct Settings
     {
         float overlapAmount = 0.499f;
+        int   fftOrder      = defaultFftOrder;  // 9–13 (512–8192)
     };
 
     FFTProcessor();
@@ -23,6 +23,9 @@ public:
     void setSettings (const Settings& newSettings);
     void processBlock (juce::AudioBuffer<float>& buffer,
                        const std::vector<std::unique_ptr<SpectralCard>>& cards);
+
+    int getFftOrder() const noexcept { return currentFftOrder; }
+    int getFftSize()  const noexcept { return currentFftSize; }
 
 private:
     // -------------------------------------------------------------------------
@@ -37,13 +40,17 @@ private:
         float powerScale   = 1.0f;
     };
 
+    void rebuildFft (int newOrder);
     void processFrameForChannel (ChannelState& channelState,
                                  const std::vector<std::unique_ptr<SpectralCard>>& cards);
 
-    double currentSampleRate = 0.0;
-    int    currentHopSize    = fftSize / 2;
+    double currentSampleRate    = 0.0;
+    int    currentFftOrder      = defaultFftOrder;
+    int    currentFftSize       = defaultFftSize;
+    int    currentOutputRingSize = 3 * defaultFftSize;
+    int    currentHopSize       = defaultFftSize / 2;
 
-    juce::dsp::FFT                          fft { fftOrder };
+    std::unique_ptr<juce::dsp::FFT>         fft;
     std::vector<float>                      fftTimeDomain;
     std::vector<float>                      fftPacked;
     std::vector<juce::dsp::Complex<float>>  bins;

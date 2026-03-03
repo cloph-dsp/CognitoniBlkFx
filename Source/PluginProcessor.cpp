@@ -1,7 +1,7 @@
-/*
+﻿/*
   ==============================================================================
 
-    This file contains the basic framework code for a JUCE plugin processor.
+    CognitoniBlkFx  PluginProcessor implementation.
 
   ==============================================================================
 */
@@ -11,45 +11,20 @@
 
 #include <array>
 #include <cmath>
-#include <functional>
 
 namespace
 {
-constexpr auto& autoHarmParams = CardSchema::paramsFor (CardSchema::CardId::autoHarm);
-constexpr auto& contrastParams = CardSchema::paramsFor (CardSchema::CardId::contrast);
-constexpr auto& sawsParams = CardSchema::paramsFor (CardSchema::CardId::saws);
-
-constexpr auto paramAutoHarmIntensity = autoHarmParams.amount;
-constexpr auto paramAutoHarmType = autoHarmParams.type;
-constexpr auto paramAutoHarmMinFreq = autoHarmParams.freqA;
-constexpr auto paramAutoHarmMaxFreq = autoHarmParams.freqB;
-constexpr auto paramAutoHarmBypass = autoHarmParams.bypass;
-constexpr auto paramAutoHarmWetDry = autoHarmParams.wetDry;
-
-constexpr auto paramContrastAmount = contrastParams.amount;
-constexpr auto paramContrastType = contrastParams.type;
-constexpr auto paramContrastMinFreq = contrastParams.freqA;
-constexpr auto paramContrastMaxFreq = contrastParams.freqB;
-constexpr auto paramContrastBypass = contrastParams.bypass;
-constexpr auto paramContrastWetDry = contrastParams.wetDry;
-
-constexpr auto paramSawsAmount = sawsParams.amount;
-constexpr auto paramSawsType = sawsParams.type;
-constexpr auto paramSawsMinFreq = sawsParams.freqA;
-constexpr auto paramSawsMaxFreq = sawsParams.freqB;
-constexpr auto paramSawsBypass = sawsParams.bypass;
-constexpr auto paramSawsWetDry = sawsParams.wetDry;
-
 constexpr auto paramMasterWetDry = "masterWetDry";
 constexpr auto paramInputGain    = "inputGain";
 constexpr auto paramOutputGain   = "outputGain";
+constexpr auto paramBlackLens    = "blackLens";
 
-constexpr float dtBlkC0Hz = 16.3516f;
+constexpr float dtBlkC0Hz    = 16.3516f;
 constexpr float dtBlkNoteSpan = 255.0f * 0.5f;
 
-float loadParamOr (const std::atomic<float>* parameter, float fallback) noexcept
+float loadParamOr (const std::atomic<float>* p, float fallback) noexcept
 {
-    return (parameter != nullptr) ? parameter->load (std::memory_order_relaxed) : fallback;
+    return (p != nullptr) ? p->load (std::memory_order_relaxed) : fallback;
 }
 
 float normalisedToDtBlkHz (float normalised, float nyquistHz) noexcept
@@ -57,101 +32,91 @@ float normalisedToDtBlkHz (float normalised, float nyquistHz) noexcept
     const auto v = juce::jlimit (0.0f, 1.0f, normalised);
     if (v <= 0.0f)
         return 0.0f;
-
-    const auto noteOffset = v * dtBlkNoteSpan;
-    const auto hz = dtBlkC0Hz * std::pow (2.0f, noteOffset / 12.0f);
+    const auto hz = dtBlkC0Hz * std::pow (2.0f, v * dtBlkNoteSpan / 12.0f);
     return juce::jlimit (0.0f, juce::jmax (20.0f, nyquistHz), hz);
 }
-}
 
-std::vector<CognitoniBlkFxAudioProcessor::PresetDefinition> CognitoniBlkFxAudioProcessor::createDefaultPresetDefinitions()
+CardSchema::CardType cardTypeFromFloat (float v) noexcept
 {
-    auto makeCardValues = [] (CardSchema::CardId cardId,
-                              std::initializer_list<std::pair<CardSchema::Key, float>> entries)
+    const auto i = juce::jlimit (0, CardSchema::numCardTypes - 1, static_cast<int> (v + 0.5f));
+    return static_cast<CardSchema::CardType> (i);
+}
+} // namespace
+
+//==============================================================================
+//  Preset helpers
+//==============================================================================
+std::vector<CognitoniBlkFxAudioProcessor::PresetDefinition>
+CognitoniBlkFxAudioProcessor::createDefaultPresetDefinitions()
+{
+    auto makeSlot = [](int slotIndex,
+                       float cardType,
+                       float amount,
+                       float harmType,
+                       float freqA,
+                       float freqB,
+                       float bypass,
+                       float wetDry) -> SlotPresetValues
     {
-        PresetDefinition::CardPresetDefinition card;
-        card.cardId = cardId;
-        for (const auto& entry : entries)
-            card.values.push_back ({ CardSchema::paramIdFor (cardId, entry.first), entry.second });
-        return card;
+        SlotPresetValues sv;
+        sv.slotIndex = slotIndex;
+        auto add = [&](const juce::String& id, float val)
+        {
+            sv.values.push_back ({ id, val });
+        };
+        add (CardSchema::cardTypeParam (slotIndex), cardType);
+        add (CardSchema::amountParam   (slotIndex), amount);
+        add (CardSchema::harmTypeParam (slotIndex), harmType);
+        add (CardSchema::freqAParam    (slotIndex), freqA);
+        add (CardSchema::freqBParam    (slotIndex), freqB);
+        add (CardSchema::bypassParam   (slotIndex), bypass);
+        add (CardSchema::wetDryParam   (slotIndex), wetDry);
+        return sv;
     };
+
+    const float kAutoHarm = 1.0f;
+    const float kContrast = 2.0f;
+    const float kSmear    = 4.0f;
 
     std::vector<PresetDefinition> defaults
     {
+        // -- Empty preset
         {
             "Empty",
             false,
+            { { paramMasterWetDry, 1.0f }, { paramBlackLens, 92.2f } },
             {
-                { paramMasterWetDry, 1.0f }
-            },
-            {
-                makeCardValues (CardSchema::CardId::autoHarm,
-                                {
-                                    { CardSchema::Key::bypass, 1.0f },
-                                    { CardSchema::Key::wetDry, 1.0f },
-                                    { CardSchema::Key::amount, 0.0f },
-                                    { CardSchema::Key::type, 0.0f },
-                                    { CardSchema::Key::freqA, 0.0f },
-                                    { CardSchema::Key::freqB, 1.0f }
-                                }),
-                makeCardValues (CardSchema::CardId::contrast,
-                                {
-                                    { CardSchema::Key::bypass, 1.0f },
-                                    { CardSchema::Key::wetDry, 1.0f },
-                                    { CardSchema::Key::amount, 0.0f },
-                                    { CardSchema::Key::type, 0.0f },
-                                    { CardSchema::Key::freqA, 0.0f },
-                                    { CardSchema::Key::freqB, 1.0f }
-                                }),
-                makeCardValues (CardSchema::CardId::saws,
-                                {
-                                    { CardSchema::Key::bypass, 1.0f },
-                                    { CardSchema::Key::wetDry, 1.0f },
-                                    { CardSchema::Key::amount, 0.0f },
-                                    { CardSchema::Key::type, 2.0f },
-                                    { CardSchema::Key::freqA, 0.0f },
-                                    { CardSchema::Key::freqB, 1.0f }
-                                })
+                makeSlot (0, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f),
+                makeSlot (1, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f),
+                makeSlot (2, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f)
             }
         },
+
+        // -- AutoHarm preset (original DtBlkFx classic: 40dB, 30% Odd, full freq range)
         {
             "AutoHarm",
             false,
+            { { paramMasterWetDry, 1.0f }, { paramBlackLens, 92.2f } },
             {
-                { paramMasterWetDry, 1.0f }
-            },
+                // Slot 0: AutoHarm — 30% Odd packed value (0.325), amplitude=1.0 (max), freqA=0.245 (≈99Hz), freqB=1.0
+                makeSlot (0, kAutoHarm, 0.325f, 0.0f, 0.245f, 1.0f, 0.0f, 1.0f),
+                // Slot 1: Contrast — contrast=0.3005 (≈-40%), amp=0.598 (≈0dB), full range
+                makeSlot (1, kContrast, 0.3005f, 0.0f, 0.0f, 1.0f, 0.0f, 0.598f),
+                makeSlot (2, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f)
+            }
+        },
+
+        // -- SuperSoft preset (original DtBlkFx: Smear 0dB/100%, Contrast 50%/1dB, mid range)
+        {
+            "SuperSoft",
+            false,
+            { { paramMasterWetDry, 1.0f }, { paramBlackLens, 1485.0f } },
             {
-                makeCardValues (CardSchema::CardId::autoHarm,
-                                {
-                                    { CardSchema::Key::bypass, 0.0f },
-                                    // AutoHarm AMP = 1.0 → 40 dB (max). The original preset's
-                                    // harmonic amplitude is at maximum.
-                                    { CardSchema::Key::wetDry, 1.0f },
-                                    // SET0.FX_VAL=0.325 in original preset → SplitParam<4>: i_part=1 (odd), f_part=0.3 (30% width)
-                                    { CardSchema::Key::amount, 0.325f },
-                                    { CardSchema::Key::type, 0.0f },
-                                    { CardSchema::Key::freqA, 0.245f },  // SET0.FREQ_A=0.245 → ~100 Hz
-                                    { CardSchema::Key::freqB, 1.0f }     // SET0.FREQ_B=1.0 → Nyquist
-                                }),
-                makeCardValues (CardSchema::CardId::contrast,
-                                {
-                                    { CardSchema::Key::bypass, 0.0f },
-                                    // Contrast AMP=0.598 → -0.2 dB (original SET1.AMP)
-                                    { CardSchema::Key::wetDry, 0.598f },
-                                    { CardSchema::Key::amount, 0.3005f },
-                                    { CardSchema::Key::type, 0.0f },
-                                    { CardSchema::Key::freqA, 0.0f },
-                                    { CardSchema::Key::freqB, 1.0f }
-                                }),
-                makeCardValues (CardSchema::CardId::saws,
-                                {
-                                    { CardSchema::Key::bypass, 1.0f },
-                                    { CardSchema::Key::wetDry, 1.0f },
-                                    { CardSchema::Key::amount, 0.45f },
-                                    { CardSchema::Key::type, 2.0f },
-                                    { CardSchema::Key::freqA, 0.0f },
-                                    { CardSchema::Key::freqB, 1.0f }
-                                })
+                // Slot 0: Smear — amp=0.6 (0dB), smear=1.0 (100%), freqB=0.94886
+                makeSlot (0, kSmear, 0.6f, 0.0f, 0.0f, 0.94886f, 0.0f, 1.0f),
+                // Slot 1: Contrast — contrast=0.75 (+50%), amp=0.61 (≈1dB), midrange freqA=0.38636, freqB=0.63068
+                makeSlot (1, kContrast, 0.75f, 0.0f, 0.38636f, 0.63068f, 0.0f, 0.61f),
+                makeSlot (2, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f)
             }
         }
     };
@@ -159,11 +124,14 @@ std::vector<CognitoniBlkFxAudioProcessor::PresetDefinition> CognitoniBlkFxAudioP
     return defaults;
 }
 
-const std::vector<CognitoniBlkFxAudioProcessor::PresetDefinition>& CognitoniBlkFxAudioProcessor::getPresetDefinitions() const
+const std::vector<CognitoniBlkFxAudioProcessor::PresetDefinition>&
+CognitoniBlkFxAudioProcessor::getPresetDefinitions() const
 {
     return presetDefinitions;
 }
 
+//==============================================================================
+//  Constructor / Destructor
 //==============================================================================
 CognitoniBlkFxAudioProcessor::CognitoniBlkFxAudioProcessor()
 #ifndef JucePlugin_PreferredChannelConfigurations
@@ -184,52 +152,251 @@ CognitoniBlkFxAudioProcessor::CognitoniBlkFxAudioProcessor()
     masterWetDryParam = apvts.getRawParameterValue (paramMasterWetDry);
     inputGainParam    = apvts.getRawParameterValue (paramInputGain);
     outputGainParam   = apvts.getRawParameterValue (paramOutputGain);
+    blackLensParam    = apvts.getRawParameterValue (paramBlackLens);
 
     presetDefinitions = createDefaultPresetDefinitions();
     loadPresetsFromJson();
 
-    initialiseCardRack();
+    rebuildCardRack();
     applyPresetByIndex (0);
 }
 
-CognitoniBlkFxAudioProcessor::~CognitoniBlkFxAudioProcessor()
+CognitoniBlkFxAudioProcessor::~CognitoniBlkFxAudioProcessor() {}
+
+//==============================================================================
+//  Parameter layout
+//==============================================================================
+juce::AudioProcessorValueTreeState::ParameterLayout
+CognitoniBlkFxAudioProcessor::createParameterLayout()
 {
+    std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
+    params.reserve (26);
+
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { paramMasterWetDry, 1 }, "Master Mix",
+        juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 1.0f));
+
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { paramInputGain, 1 }, "Input Gain",
+        juce::NormalisableRange<float> (-18.0f, 18.0f, 0.1f), 0.0f));
+
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { paramOutputGain, 1 }, "Output Gain",
+        juce::NormalisableRange<float> (-18.0f, 18.0f, 0.1f), 0.0f));
+
+    // BlackLens: FFT window size stored as milliseconds (5–1830 ms)
+    // The processor converts ms → nearest power-of-2 FFT order (8–17).
+    // Skew 0.228 places 92.2 ms at the visual knob centre.
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { paramBlackLens, 1 }, "BlackLens",
+        juce::NormalisableRange<float> (5.0f, 1830.0f, 0.0f, 0.228f), 92.2f));
+
+    for (int s = 0; s < CardSchema::numSlots; ++s)
+    {
+        const auto pre = "Slot " + juce::String (s) + " ";
+
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { CardSchema::cardTypeParam (s), 1 },
+            pre + "Card Type",
+            juce::NormalisableRange<float> (0.0f, static_cast<float> (CardSchema::numCardTypes - 1), 1.0f),
+            0.0f));
+
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { CardSchema::amountParam (s), 1 },
+            pre + "Amount",
+            juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.3f));
+
+        // Float param (0..3, step 1) so a rotary Slider can attach to it
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { CardSchema::harmTypeParam (s), 1 },
+            pre + "Harmonic Type",
+            juce::NormalisableRange<float> (0.0f, 3.0f, 1.0f), 0.0f));
+
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { CardSchema::freqAParam (s), 1 },
+            pre + "Freq Low",
+            juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.0f));
+
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { CardSchema::freqBParam (s), 1 },
+            pre + "Freq High",
+            juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 1.0f));
+
+        params.push_back (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID { CardSchema::bypassParam (s), 1 },
+            pre + "Bypass", false));
+
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { CardSchema::wetDryParam (s), 1 },
+            pre + "Wet/Dry",
+            juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 1.0f));
+    }
+
+    return { params.begin(), params.end() };
+}
+
+//==============================================================================
+//  Runtime parameter binding
+//==============================================================================
+
+static int msToFftOrder (float ms, double sampleRate) noexcept
+{
+    const int samples = juce::jmax (32, static_cast<int> (ms * sampleRate / 1000.0));
+    const int order   = juce::roundToInt (std::log2 (static_cast<float> (samples)));
+    return juce::jlimit (8, 17, order);
 }
 
 void CognitoniBlkFxAudioProcessor::bindRuntimeParameters()
 {
-    auto bindCard = [this] (CardSchema::CardId cardId)
+    for (int s = 0; s < CardSchema::numSlots; ++s)
     {
-        const auto& ids = CardSchema::paramsFor (cardId);
-        auto& runtime = runtimeParamsFor (cardId);
-        runtime.amount = apvts.getRawParameterValue (ids.amount);
-        runtime.type = apvts.getRawParameterValue (ids.type);
-        runtime.freqA = apvts.getRawParameterValue (ids.freqA);
-        runtime.freqB = apvts.getRawParameterValue (ids.freqB);
-        runtime.bypass = apvts.getRawParameterValue (ids.bypass);
-        runtime.wetDry = apvts.getRawParameterValue (ids.wetDry);
-    };
-
-    bindCard (CardSchema::CardId::autoHarm);
-    bindCard (CardSchema::CardId::contrast);
-    bindCard (CardSchema::CardId::saws);
-}
-
-CognitoniBlkFxAudioProcessor::CardRuntimeParameters& CognitoniBlkFxAudioProcessor::runtimeParamsFor (CardSchema::CardId cardId) noexcept
-{
-    return cardRuntimeParams[static_cast<size_t> (cardId)];
-}
-
-const CognitoniBlkFxAudioProcessor::CardRuntimeParameters& CognitoniBlkFxAudioProcessor::runtimeParamsFor (CardSchema::CardId cardId) const noexcept
-{
-    return cardRuntimeParams[static_cast<size_t> (cardId)];
+        auto& sp = slotRuntimeParams[static_cast<size_t> (s)];
+        sp.cardType = apvts.getRawParameterValue (CardSchema::cardTypeParam (s));
+        sp.amount   = apvts.getRawParameterValue (CardSchema::amountParam   (s));
+        sp.harmType = apvts.getRawParameterValue (CardSchema::harmTypeParam (s));
+        sp.freqA    = apvts.getRawParameterValue (CardSchema::freqAParam    (s));
+        sp.freqB    = apvts.getRawParameterValue (CardSchema::freqBParam    (s));
+        sp.bypass   = apvts.getRawParameterValue (CardSchema::bypassParam   (s));
+        sp.wetDry   = apvts.getRawParameterValue (CardSchema::wetDryParam   (s));
+    }
 }
 
 //==============================================================================
-const juce::String CognitoniBlkFxAudioProcessor::getName() const
+//  Card rack management 
+//==============================================================================
+void CognitoniBlkFxAudioProcessor::rebuildCardRack()
 {
-    return JucePlugin_Name;
+    std::array<int, CardSchema::numSlots> currentTypes;
+    for (int s = 0; s < CardSchema::numSlots; ++s)
+        currentTypes[static_cast<size_t> (s)] =
+            static_cast<int> (loadParamOr (slotRuntimeParams[static_cast<size_t> (s)].cardType, 0.0f) + 0.5f);
+
+    bool changed = false;
+    for (int s = 0; s < CardSchema::numSlots; ++s)
+        if (currentTypes[static_cast<size_t> (s)] != lastBuiltSlotTypes[static_cast<size_t> (s)])
+        { changed = true; break; }
+
+    if (! changed)
+        return;
+
+    cardRack.clear();
+    for (int s = 0; s < CardSchema::numSlots; ++s)
+    {
+        const auto t = static_cast<CardSchema::CardType> (currentTypes[static_cast<size_t> (s)]);
+        lastBuiltSlotTypes[static_cast<size_t> (s)] = static_cast<int> (t);
+
+        switch (t)
+        {
+            case CardSchema::CardType::autoHarm:
+            {
+                auto card = std::make_unique<AutoHarmCard>();
+                card->setSettings (AutoHarmCard::PresetManager::getProfile (
+                    AutoHarmCard::Profile::DtBlkFxClassicAutoHarm));
+                cardRack.push_back (std::move (card));
+                break;
+            }
+            case CardSchema::CardType::contrast:
+                cardRack.push_back (std::make_unique<ContrastCard>());
+                break;
+            case CardSchema::CardType::saws:
+                cardRack.push_back (std::make_unique<SawsCard>());
+                break;
+            case CardSchema::CardType::smear:
+                cardRack.push_back (std::make_unique<SmearCard>());
+                break;
+            case CardSchema::CardType::empty:
+            default:
+                break;
+        }
+    }
+
+    const auto sr = getSampleRate();
+    const int numCh = juce::jmax (1, juce::jmax (getTotalNumInputChannels(), getTotalNumOutputChannels()));
+    if (sr > 0.0)
+        for (auto& card : cardRack)
+        {
+            card->setProcessingContext (sr, fftProcessor.getFftSize());
+            card->setNumChannels (numCh);
+        }
 }
+
+//==============================================================================
+//  Push parameters -> card settings
+//==============================================================================
+void CognitoniBlkFxAudioProcessor::pushParameterSnapshotToCards()
+{
+    rebuildCardRack();
+
+    const auto nyquist = juce::jmax (20.0f, static_cast<float> (getSampleRate() * 0.5));
+
+    int rackIndex = 0;
+    for (int s = 0; s < CardSchema::numSlots && rackIndex < (int)cardRack.size(); ++s)
+    {
+        const auto& sp = slotRuntimeParams[static_cast<size_t> (s)];
+        const auto  t  = cardTypeFromFloat (loadParamOr (sp.cardType, 0.0f));
+        if (t == CardSchema::CardType::empty)
+            continue;
+
+        auto& card = *cardRack[static_cast<size_t> (rackIndex++)];
+
+        const bool  bypassed   = loadParamOr (sp.bypass,   0.0f) > 0.5f;
+        const float wetDry     = loadParamOr (sp.wetDry,   1.0f);
+        const float amount     = juce::jlimit (0.0f, 1.0f, loadParamOr (sp.amount, 0.0f));
+        const int   harmInt    = juce::jlimit (0, 3, static_cast<int> (loadParamOr (sp.harmType, 0.0f)));
+        const float freqAHz    = normalisedToDtBlkHz (juce::jlimit (0.0f, 1.0f, loadParamOr (sp.freqA, 0.0f)), nyquist);
+        const float freqBHz    = normalisedToDtBlkHz (juce::jlimit (0.0f, 1.0f, loadParamOr (sp.freqB, 1.0f)), nyquist);
+
+        if (auto* autoHarmC = dynamic_cast<AutoHarmCard*> (&card))
+        {
+            auto settings = AutoHarmCard::PresetManager::getProfile (AutoHarmCard::Profile::DtBlkFxClassicAutoHarm);
+            settings.common.isBypassed  = bypassed;
+            settings.common.wetDry      = wetDry;
+            settings.targetIntensity    = amount;
+            settings.harmonicType       = static_cast<SpectralHarmonicType> (harmInt);
+            settings.searchBandHz.minHz = freqAHz;
+            settings.searchBandHz.maxHz = freqBHz;
+            autoHarmC->setSettings (settings);
+        }
+        else if (auto* contrastC = dynamic_cast<ContrastCard*> (&card))
+        {
+            ContrastCard::Settings settings;
+            settings.common.isBypassed  = bypassed;
+            settings.common.wetDry      = wetDry;
+            settings.amount             = amount;
+            settings.harmonicType       = static_cast<SpectralHarmonicType> (harmInt);
+            settings.searchBandHz.minHz = freqAHz;
+            settings.searchBandHz.maxHz = freqBHz;
+            contrastC->setSettings (settings);
+        }
+        else if (auto* sawsC = dynamic_cast<SawsCard*> (&card))
+        {
+            SawsCard::Settings settings;
+            settings.common.isBypassed  = bypassed;
+            settings.common.wetDry      = wetDry;
+            settings.amount             = amount;
+            settings.harmonicType       = static_cast<SpectralHarmonicType> (harmInt);
+            settings.searchBandHz.minHz = freqAHz;
+            settings.searchBandHz.maxHz = freqBHz;
+            sawsC->setSettings (settings);
+        }
+        else if (auto* smearC = dynamic_cast<SmearCard*> (&card))
+        {
+            SmearCard::Settings settings;
+            settings.common.isBypassed  = bypassed;
+            settings.common.wetDry      = 1.0f;   // SmearCard doesn't use an extra wet/dry mix
+            settings.ampParam           = amount;  // dB knob 0..1 → amp multiplier
+            settings.smearAmount        = wetDry;  // Value knob 0..1 → phase scramble intensity
+            settings.searchBandHz.minHz = freqAHz;
+            settings.searchBandHz.maxHz = freqBHz;
+            smearC->setSettings (settings);
+        }
+    }
+}
+
+//==============================================================================
+//  Boilerplate
+//==============================================================================
+const juce::String CognitoniBlkFxAudioProcessor::getName() const { return JucePlugin_Name; }
 
 bool CognitoniBlkFxAudioProcessor::acceptsMidi() const
 {
@@ -258,547 +425,32 @@ bool CognitoniBlkFxAudioProcessor::isMidiEffect() const
    #endif
 }
 
-double CognitoniBlkFxAudioProcessor::getTailLengthSeconds() const
-{
-    return 0.0;
-}
+double CognitoniBlkFxAudioProcessor::getTailLengthSeconds() const { return 0.0; }
 
-int CognitoniBlkFxAudioProcessor::getNumPrograms()
-{
-    return juce::jmax (1, static_cast<int> (getPresetDefinitions().size()));
-}
-
-int CognitoniBlkFxAudioProcessor::getCurrentProgram()
-{
-    return currentPresetIndex.load (std::memory_order_relaxed);
-}
-
-void CognitoniBlkFxAudioProcessor::setCurrentProgram (int index)
-{
-    applyPresetByIndex (index);
-}
+int  CognitoniBlkFxAudioProcessor::getNumPrograms() { return juce::jmax (1, static_cast<int> (getPresetDefinitions().size())); }
+int  CognitoniBlkFxAudioProcessor::getCurrentProgram() { return currentPresetIndex.load (std::memory_order_relaxed); }
+void CognitoniBlkFxAudioProcessor::setCurrentProgram (int index) { applyPresetByIndex (index); }
 
 const juce::String CognitoniBlkFxAudioProcessor::getProgramName (int index)
 {
     const auto& presets = getPresetDefinitions();
-    if (index >= 0 && index < static_cast<int> (presets.size()))
-        return presets[static_cast<size_t> (index)].name;
-
+    if (index >= 0 && index < (int)presets.size())
+        return presets[(size_t)index].name;
     return "Preset";
 }
 
 void CognitoniBlkFxAudioProcessor::changeProgramName (int index, const juce::String& newName)
 {
-    if (newName.isEmpty())
-        return;
-
-    if (index < 0 || index >= static_cast<int> (presetDefinitions.size()))
-        return;
-
-    presetDefinitions[static_cast<size_t> (index)].name = newName;
+    if (newName.isEmpty() || index < 0 || index >= (int)presetDefinitions.size()) return;
+    presetDefinitions[(size_t)index].name = newName;
     savePresetsToJson();
 }
 
 juce::StringArray CognitoniBlkFxAudioProcessor::getPresetNames() const
 {
-    juce::StringArray names;
-    for (const auto& preset : getPresetDefinitions())
-        names.add (preset.name);
-    return names;
-}
-
-bool CognitoniBlkFxAudioProcessor::saveCurrentPresetAs (const juce::String& presetName)
-{
-    if (presetName.isEmpty())
-        return false;
-
-    PresetDefinition newPreset;
-    newPreset.name = presetName;
-    newPreset.userPreset = true;
-    newPreset.globalValues =
-    {
-        { paramMasterWetDry, (masterWetDryParam != nullptr) ? masterWetDryParam->load (std::memory_order_relaxed) : 1.0f }
-    };
-
-    auto captureCard = [this] (CardSchema::CardId cardId)
-    {
-        PresetDefinition::CardPresetDefinition card;
-        card.cardId = cardId;
-
-        const auto& ids = CardSchema::paramsFor (cardId);
-        std::array<const char*, 6> ordered
-        {
-            ids.bypass, ids.wetDry, ids.amount, ids.type, ids.freqA, ids.freqB
-        };
-
-        for (const auto* id : ordered)
-        {
-            if (auto* value = apvts.getRawParameterValue (id))
-                card.values.push_back ({ id, value->load (std::memory_order_relaxed) });
-        }
-
-        return card;
-    };
-
-    newPreset.cards.push_back (captureCard (CardSchema::CardId::autoHarm));
-    newPreset.cards.push_back (captureCard (CardSchema::CardId::contrast));
-    newPreset.cards.push_back (captureCard (CardSchema::CardId::saws));
-
-    presetDefinitions.push_back (newPreset);
-    currentPresetIndex.store (static_cast<int> (presetDefinitions.size()) - 1, std::memory_order_relaxed);
-    return savePresetsToJson();
-}
-
-bool CognitoniBlkFxAudioProcessor::deletePresetByIndex (int presetIndex)
-{
-    if (presetIndex < 0 || presetIndex >= static_cast<int> (presetDefinitions.size()))
-        return false;
-
-    auto& preset = presetDefinitions[static_cast<size_t> (presetIndex)];
-    if (! preset.userPreset)
-        return false;
-
-    presetDefinitions.erase (presetDefinitions.begin() + presetIndex);
-
-    if (presetDefinitions.empty())
-        presetDefinitions = createDefaultPresetDefinitions();
-
-    auto nextIndex = 0;
-    for (int i = 0; i < static_cast<int> (presetDefinitions.size()); ++i)
-    {
-        if (presetDefinitions[static_cast<size_t> (i)].name == "Empty")
-        {
-            nextIndex = i;
-            break;
-        }
-    }
-
-    applyPresetByIndex (nextIndex);
-    return savePresetsToJson();
-}
-
-bool CognitoniBlkFxAudioProcessor::isPresetUserDeletable (int presetIndex) const noexcept
-{
-    if (presetIndex < 0 || presetIndex >= static_cast<int> (presetDefinitions.size()))
-        return false;
-
-    return presetDefinitions[static_cast<size_t> (presetIndex)].userPreset;
-}
-
-int CognitoniBlkFxAudioProcessor::getCurrentPresetIndex() const noexcept
-{
-    return currentPresetIndex.load (std::memory_order_relaxed);
-}
-
-float CognitoniBlkFxAudioProcessor::getLastInputRms() const noexcept
-{
-    return lastInputRms.load (std::memory_order_relaxed);
-}
-
-float CognitoniBlkFxAudioProcessor::getLastOutputRms() const noexcept
-{
-    return lastOutputRms.load (std::memory_order_relaxed);
-}
-
-int CognitoniBlkFxAudioProcessor::getLastSanitisedSamples() const noexcept
-{
-    return lastSanitisedSamples.load (std::memory_order_relaxed);
-}
-
-void CognitoniBlkFxAudioProcessor::setParameterToPlainValue (const juce::String& parameterId, float plainValue)
-{
-    if (auto* parameter = apvts.getParameter (parameterId))
-    {
-        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
-            parameter->setValueNotifyingHost (ranged->convertTo0to1 (plainValue));
-        else
-            parameter->setValueNotifyingHost (plainValue);
-    }
-}
-
-void CognitoniBlkFxAudioProcessor::applyPresetByIndex (int presetIndex)
-{
-    const auto& presets = getPresetDefinitions();
-    if (presets.empty())
-        return;
-
-    const auto clamped = juce::jlimit (0, static_cast<int> (presets.size()) - 1, presetIndex);
-    const auto& preset = presets[static_cast<size_t> (clamped)];
-
-    if (auto beginGesture = [this] (const juce::String& parameterId)
-    {
-        if (auto* parameter = apvts.getParameter (parameterId))
-            parameter->beginChangeGesture();
-    }; true)
-    {
-        for (const auto& value : preset.globalValues)
-        {
-            beginGesture (value.parameterId);
-            setParameterToPlainValue (value.parameterId, value.plainValue);
-        }
-    }
-
-    for (const auto& cardPreset : preset.cards)
-    {
-        juce::ignoreUnused (cardPreset.cardId);
-        for (const auto& value : cardPreset.values)
-        {
-            if (auto* parameter = apvts.getParameter (value.parameterId))
-                parameter->beginChangeGesture();
-            setParameterToPlainValue (value.parameterId, value.plainValue);
-        }
-    }
-
-    for (const auto& value : preset.globalValues)
-        if (auto* parameter = apvts.getParameter (value.parameterId))
-            parameter->endChangeGesture();
-
-    for (const auto& cardPreset : preset.cards)
-        for (const auto& value : cardPreset.values)
-            if (auto* parameter = apvts.getParameter (value.parameterId))
-                parameter->endChangeGesture();
-
-    currentPresetIndex.store (clamped, std::memory_order_relaxed);
-    pushParameterSnapshotToCards();
-}
-
-//==============================================================================
-void CognitoniBlkFxAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
-{
-    juce::ignoreUnused (samplesPerBlock);
-
-    const auto prepareChannels = juce::jmax (1, juce::jmax (getTotalNumInputChannels(), getTotalNumOutputChannels()));
-    fftProcessor.prepare (sampleRate, prepareChannels);
-
-    // Report the fftSize latency introduced by the crossfade output approach.
-    // Mirrors original DtBlkFx: output ring (x3) is always fftSize ahead of input.
-    setLatencySamples (FFTProcessor::fftSize);
-
-    FFTProcessor::Settings fftSettings;
-    // 0.499 overlap: hop=2351 for N=4096 (42.6% overlap).
-    // Matches original DtBlkFx AutoHarm preset (OVERLAP=0.499).
-    // Larger hop = wider blocks in spectrogram = original's "blocky" feel.
-    fftSettings.overlapAmount = 0.499f;
-    fftProcessor.setSettings (fftSettings);
-
-    for (auto& card : cardRack)
-        card->setProcessingContext (sampleRate, FFTProcessor::fftSize);
-
-    pushParameterSnapshotToCards();
-}
-
-void CognitoniBlkFxAudioProcessor::releaseResources()
-{
-    fftProcessor.reset();
-}
-
-int CognitoniBlkFxAudioProcessor::getLastInputChannels() const noexcept
-{
-    return lastInputChannels.load (std::memory_order_relaxed);
-}
-
-int CognitoniBlkFxAudioProcessor::getLastOutputChannels() const noexcept
-{
-    return lastOutputChannels.load (std::memory_order_relaxed);
-}
-
-#ifndef JucePlugin_PreferredChannelConfigurations
-bool CognitoniBlkFxAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
-{
-  #if JucePlugin_IsMidiEffect
-    juce::ignoreUnused (layouts);
-    return true;
-  #else
-    // This is the place where you check if the layout is supported.
-    // In this template code we only support mono or stereo.
-    // Some plugin hosts, such as certain GarageBand versions, will only
-    // load plugins that support stereo bus layouts.
-    if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
-     && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
-        return false;
-
-    // This checks if the input layout matches the output layout
-   #if ! JucePlugin_IsSynth
-    if (layouts.getMainOutputChannelSet() != layouts.getMainInputChannelSet())
-        return false;
-   #endif
-
-    return true;
-  #endif
-}
-#endif
-
-void CognitoniBlkFxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
-{
-    juce::ScopedNoDenormals noDenormals;
-    juce::ignoreUnused (midiMessages);
-
-    const auto totalNumInputChannels = getTotalNumInputChannels();
-    const auto totalNumOutputChannels = getTotalNumOutputChannels();
-    const auto bufferChannels = buffer.getNumChannels();
-
-    lastInputChannels.store (totalNumInputChannels, std::memory_order_relaxed);
-    lastOutputChannels.store (totalNumOutputChannels, std::memory_order_relaxed);
-
-    // In case we have more outputs than inputs, this code clears any output
-    // channels that didn't contain input data, (because these aren't
-    // guaranteed to be empty - they may contain garbage).
-    // This is here to avoid people getting screaming feedback
-    // when they first compile a plugin, but obviously you don't need to keep
-    // this code if your algorithm always overwrites all the output channels.
-    if (totalNumInputChannels > 0 && totalNumOutputChannels > totalNumInputChannels)
-    {
-        const auto clearFrom = juce::jlimit (0, bufferChannels, totalNumInputChannels);
-        const auto clearTo = juce::jlimit (clearFrom, bufferChannels, totalNumOutputChannels);
-        for (auto channel = clearFrom; channel < clearTo; ++channel)
-            buffer.clear (channel, 0, buffer.getNumSamples());
-    }
-
-    // Input gain — apply before spectral processing so the dry copy also has the gain
-    const auto inputGainDb  = loadParamOr (inputGainParam, 0.0f);
-    const auto inputGainLin = juce::Decibels::decibelsToGain (inputGainDb, -60.0f);
-    if (std::abs (inputGainLin - 1.0f) > 1.0e-5f)
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-            buffer.applyGain (ch, 0, buffer.getNumSamples(), inputGainLin);
-
-    juce::AudioBuffer<float> dryBuffer;
-    dryBuffer.makeCopyOf (buffer, true);
-
-    const auto cardIsActive = [this] (CardSchema::CardId cardId)
-    {
-        const auto& params = runtimeParamsFor (cardId);
-        const auto bypassed = loadParamOr (params.bypass, 0.0f) > 0.5f;
-        const auto wet = loadParamOr (params.wetDry, 1.0f);
-        return (! bypassed) && (wet > 1.0e-4f);
-    };
-
-    const auto hasActiveCard = cardIsActive (CardSchema::CardId::autoHarm)
-        || cardIsActive (CardSchema::CardId::contrast)
-        || cardIsActive (CardSchema::CardId::saws);
-
-    if (! hasActiveCard)
-    {
-        applyMasterWetDryMix (buffer, dryBuffer);
-
-        // Output gain in bypass path too
-        const auto ogDb = loadParamOr (outputGainParam, 0.0f);
-        const auto ogLin = juce::Decibels::decibelsToGain (ogDb, -60.0f);
-        if (std::abs (ogLin - 1.0f) > 1.0e-5f)
-            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-                buffer.applyGain (ch, 0, buffer.getNumSamples(), ogLin);
-
-        double energy = 0.0;
-        const auto channelsToUse = juce::jmin (buffer.getNumChannels(), dryBuffer.getNumChannels());
-        const auto samplesToUse = juce::jmin (buffer.getNumSamples(), dryBuffer.getNumSamples());
-        for (int channel = 0; channel < channelsToUse; ++channel)
-        {
-            const auto* data = buffer.getReadPointer (channel);
-            for (int sample = 0; sample < samplesToUse; ++sample)
-            {
-                const auto value = static_cast<double> (data[sample]);
-                energy += value * value;
-            }
-        }
-
-        const auto denom = static_cast<double> (juce::jmax (1, channelsToUse * samplesToUse));
-        const auto rms = static_cast<float> (std::sqrt (energy / denom));
-        lastInputRms.store (rms, std::memory_order_relaxed);
-        lastOutputRms.store (rms, std::memory_order_relaxed);
-        lastSanitisedSamples.store (0, std::memory_order_relaxed);
-        return;
-    }
-
-    FFTProcessor::Settings fftSettings;
-    fftSettings.overlapAmount = 0.499f;
-    fftProcessor.setSettings (fftSettings);
-
-    pushParameterSnapshotToCards();
-    fftProcessor.processBlock (buffer, cardRack);
-
-    double inputEnergy = 0.0;
-    double outputEnergy = 0.0;
-    const auto channelsToUse = juce::jmin (buffer.getNumChannels(), dryBuffer.getNumChannels());
-    const auto samplesToUse = juce::jmin (buffer.getNumSamples(), dryBuffer.getNumSamples());
-
-    int sanitisedSamples = 0;
-
-    for (int channel = 0; channel < channelsToUse; ++channel)
-    {
-        const auto* in = dryBuffer.getReadPointer (channel);
-        auto* out = buffer.getWritePointer (channel);
-
-        for (int sample = 0; sample < samplesToUse; ++sample)
-        {
-            const auto inSample = static_cast<double> (in[sample]);
-            auto outSample = static_cast<double> (out[sample]);
-
-            if (! std::isfinite (outSample))
-            {
-                out[sample] = in[sample];
-                outSample = static_cast<double> (in[sample]);
-                ++sanitisedSamples;
-            }
-
-            inputEnergy += inSample * inSample;
-            outputEnergy += outSample * outSample;
-        }
-    }
-
-    applyMasterWetDryMix (buffer, dryBuffer);
-
-    // Output gain — applied after the wet/dry blend
-    const auto outputGainDb  = loadParamOr (outputGainParam, 0.0f);
-    const auto outputGainLin = juce::Decibels::decibelsToGain (outputGainDb, -60.0f);
-    if (std::abs (outputGainLin - 1.0f) > 1.0e-5f)
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-            buffer.applyGain (ch, 0, buffer.getNumSamples(), outputGainLin);
-
-    double mixedEnergy = 0.0;
-    for (int channel = 0; channel < channelsToUse; ++channel)
-    {
-        const auto* mixed = buffer.getReadPointer (channel);
-        for (int sample = 0; sample < samplesToUse; ++sample)
-        {
-            const auto value = static_cast<double> (mixed[sample]);
-            mixedEnergy += value * value;
-        }
-    }
-
-    const auto denom = static_cast<double> (juce::jmax (1, channelsToUse * samplesToUse));
-    lastInputRms.store (static_cast<float> (std::sqrt (inputEnergy / denom)), std::memory_order_relaxed);
-    lastOutputRms.store (static_cast<float> (std::sqrt (mixedEnergy / denom)), std::memory_order_relaxed);
-    lastSanitisedSamples.store (sanitisedSamples, std::memory_order_relaxed);
-}
-
-juce::AudioProcessorValueTreeState::ParameterLayout CognitoniBlkFxAudioProcessor::createParameterLayout()
-{
-    std::vector<std::unique_ptr<juce::RangedAudioParameter>> parameters;
-    parameters.reserve (21);
-
-    parameters.push_back (std::make_unique<juce::AudioParameterFloat> (
-        juce::ParameterID { paramMasterWetDry, 1 },
-        "Master WetDry",
-        juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f),
-        1.0f));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterFloat> (
-        juce::ParameterID { paramInputGain, 1 },
-        "Input Gain",
-        juce::NormalisableRange<float> (-18.0f, 18.0f, 0.1f),
-        0.0f));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterFloat> (
-        juce::ParameterID { paramOutputGain, 1 },
-        "Output Gain",
-        juce::NormalisableRange<float> (-18.0f, 18.0f, 0.1f),
-        0.0f));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterBool> (
-        juce::ParameterID { paramAutoHarmBypass, 1 },
-        "AutoHarm Bypass",
-        false));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterFloat> (
-        juce::ParameterID { paramAutoHarmWetDry, 1 },
-        "AutoHarm WetDry",
-        juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f),
-        1.0f));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterFloat> (
-        juce::ParameterID { paramAutoHarmIntensity, 1 },
-        "AutoHarm Target Intensity",
-        juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f),
-        0.3f));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterChoice> (
-        juce::ParameterID { paramAutoHarmType, 1 },
-        "AutoHarm Harmonic Type",
-        juce::StringArray { "Odd", "Even", "Both", "Between" },
-        0));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterFloat> (
-        juce::ParameterID { paramAutoHarmMinFreq, 1 },
-        "AutoHarm Min Frequency",
-        juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f),
-        0.0f));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterFloat> (
-        juce::ParameterID { paramAutoHarmMaxFreq, 1 },
-        "AutoHarm Max Frequency",
-        juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f),
-        1.0f));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterFloat> (
-        juce::ParameterID { paramContrastAmount, 1 },
-        "Contrast Amount",
-        juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f),
-        0.45f));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterChoice> (
-        juce::ParameterID { paramContrastType, 1 },
-        "Contrast Harmonic Type",
-        juce::StringArray { "Odd", "Even", "Both", "Between" },
-        0));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterFloat> (
-        juce::ParameterID { paramContrastMinFreq, 1 },
-        "Contrast Min Frequency",
-        juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f),
-        0.0f));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterFloat> (
-        juce::ParameterID { paramContrastMaxFreq, 1 },
-        "Contrast Max Frequency",
-        juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f),
-        1.0f));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterBool> (
-        juce::ParameterID { paramContrastBypass, 1 },
-        "Contrast Bypass",
-        false));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterFloat> (
-        juce::ParameterID { paramContrastWetDry, 1 },
-        "Contrast WetDry",
-        juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f),
-        1.0f));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterFloat> (
-        juce::ParameterID { paramSawsAmount, 1 },
-        "Saws Amount",
-        juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f),
-        0.62f));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterChoice> (
-        juce::ParameterID { paramSawsType, 1 },
-        "Saws Harmonic Type",
-        juce::StringArray { "Odd", "Even", "Both", "Between" },
-        2));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterFloat> (
-        juce::ParameterID { paramSawsMinFreq, 1 },
-        "Saws Min Frequency",
-        juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f),
-        0.0f));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterFloat> (
-        juce::ParameterID { paramSawsMaxFreq, 1 },
-        "Saws Max Frequency",
-        juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f),
-        1.0f));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterBool> (
-        juce::ParameterID { paramSawsBypass, 1 },
-        "Saws Bypass",
-        true));
-
-    parameters.push_back (std::make_unique<juce::AudioParameterFloat> (
-        juce::ParameterID { paramSawsWetDry, 1 },
-        "Saws WetDry",
-        juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f),
-        1.0f));
-
-    return { parameters.begin(), parameters.end() };
+    juce::StringArray n;
+    for (const auto& p : getPresetDefinitions()) n.add (p.name);
+    return n;
 }
 
 float CognitoniBlkFxAudioProcessor::getCurrentNyquistHz() const noexcept
@@ -807,170 +459,385 @@ float CognitoniBlkFxAudioProcessor::getCurrentNyquistHz() const noexcept
     return (sr > 0.0) ? static_cast<float> (sr * 0.5) : 22050.0f;
 }
 
-std::pair<float, float> CognitoniBlkFxAudioProcessor::getAutoHarmSearchBandHzForUi() const noexcept
-{
-    const auto nyquist = getCurrentNyquistHz();
-    const auto& autoParams = runtimeParamsFor (CardSchema::CardId::autoHarm);
-    const auto freqANorm = juce::jlimit (0.0f, 1.0f, loadParamOr (autoParams.freqA, 0.0f));
-    const auto freqBNorm = juce::jlimit (0.0f, 1.0f, loadParamOr (autoParams.freqB, 1.0f));
+float CognitoniBlkFxAudioProcessor::getLastInputRms()         const noexcept { return lastInputRms.load (std::memory_order_relaxed); }
+float CognitoniBlkFxAudioProcessor::getLastOutputRms()        const noexcept { return lastOutputRms.load (std::memory_order_relaxed); }
+int   CognitoniBlkFxAudioProcessor::getLastSanitisedSamples() const noexcept { return lastSanitisedSamples.load (std::memory_order_relaxed); }
+int   CognitoniBlkFxAudioProcessor::getLastInputChannels()    const noexcept { return lastInputChannels.load (std::memory_order_relaxed); }
+int   CognitoniBlkFxAudioProcessor::getLastOutputChannels()   const noexcept { return lastOutputChannels.load (std::memory_order_relaxed); }
 
-    return { normalisedToDtBlkHz (freqANorm, nyquist), normalisedToDtBlkHz (freqBNorm, nyquist) };
-}
-
-void CognitoniBlkFxAudioProcessor::applyMasterWetDryMix (juce::AudioBuffer<float>& wetBuffer,
-                                                         const juce::AudioBuffer<float>& dryBuffer) const
-{
-    float wet = 1.0f;
-    if (masterWetDryParam != nullptr)
-    {
-        wet = juce::jlimit (0.0f, 1.0f, masterWetDryParam->load (std::memory_order_relaxed));
-    }
-    else if (auto* parameter = apvts.getParameter (paramMasterWetDry))
-    {
-        wet = juce::jlimit (0.0f, 1.0f, parameter->getValue());
-    }
-
-    if (wet >= 1.0f)
-        return;
-
-    if (wet <= 0.0f)
-    {
-        wetBuffer.makeCopyOf (dryBuffer, true);
-        return;
-    }
-
-    const auto dry = 1.0f - wet;
-    const auto channelsToUse = juce::jmin (wetBuffer.getNumChannels(), dryBuffer.getNumChannels());
-    const auto samplesToUse = juce::jmin (wetBuffer.getNumSamples(), dryBuffer.getNumSamples());
-
-    for (int channel = 0; channel < channelsToUse; ++channel)
-    {
-        auto* wetData = wetBuffer.getWritePointer (channel);
-        const auto* dryData = dryBuffer.getReadPointer (channel);
-
-        for (int sample = 0; sample < samplesToUse; ++sample)
-            wetData[sample] = (wetData[sample] * wet) + (dryData[sample] * dry);
-    }
-}
-
-void CognitoniBlkFxAudioProcessor::initialiseCardRack()
-{
-    using CardFactory = std::function<std::unique_ptr<SpectralCard>()>;
-
-    const std::array<CardFactory, 3> factories
-    {
-        [] { return std::make_unique<AutoHarmCard>(); },
-        [] { return std::make_unique<ContrastCard>(); },
-        [] { return std::make_unique<SawsCard>(); }
-    };
-
-    cardRack.clear();
-    cardRack.reserve (factories.size());
-
-    for (const auto& factory : factories)
-        cardRack.push_back (factory());
-
-    for (auto& card : cardRack)
-    {
-        if (auto* autoCard = dynamic_cast<AutoHarmCard*> (card.get()))
-            autoHarmCard = autoCard;
-
-        if (auto* contrast = dynamic_cast<ContrastCard*> (card.get()))
-            contrastCard = contrast;
-
-        if (auto* saws = dynamic_cast<SawsCard*> (card.get()))
-            sawsCard = saws;
-    }
-
-    if (autoHarmCard != nullptr)
-        autoHarmCard->setSettings (AutoHarmCard::PresetManager::getProfile (AutoHarmCard::Profile::DtBlkFxClassicAutoHarm));
-}
-
-void CognitoniBlkFxAudioProcessor::pushParameterSnapshotToCards()
-{
-    if (autoHarmCard != nullptr)
-    {
-        const auto& params = runtimeParamsFor (CardSchema::CardId::autoHarm);
-        auto settings = AutoHarmCard::PresetManager::getProfile (AutoHarmCard::Profile::DtBlkFxClassicAutoHarm);
-        const auto nyquist = juce::jmax (20.0f, static_cast<float> (getSampleRate() * 0.5));
-
-        settings.common.isBypassed = loadParamOr (params.bypass, 0.0f) > 0.5f;
-        settings.common.wetDry = loadParamOr (params.wetDry, 1.0f);
-        settings.targetIntensity = juce::jlimit (0.0f, 1.0f, loadParamOr (params.amount, 0.0f));
-        settings.harmonicType = static_cast<SpectralHarmonicType> (
-            juce::jlimit (0, 3, static_cast<int> (loadParamOr (params.type, 0.0f))));
-
-        const auto freqANorm = juce::jlimit (0.0f, 1.0f, loadParamOr (params.freqA, 0.0f));
-        const auto freqBNorm = juce::jlimit (0.0f, 1.0f, loadParamOr (params.freqB, 1.0f));
-
-        settings.searchBandHz.minHz = normalisedToDtBlkHz (freqANorm, nyquist);
-        settings.searchBandHz.maxHz = normalisedToDtBlkHz (freqBNorm, nyquist);
-
-        autoHarmCard->setSettings (settings);
-    }
-
-    if (contrastCard != nullptr)
-    {
-        const auto& params = runtimeParamsFor (CardSchema::CardId::contrast);
-        ContrastCard::Settings settings;
-        const auto nyquist = juce::jmax (20.0f, static_cast<float> (getSampleRate() * 0.5));
-
-        settings.common.isBypassed = loadParamOr (params.bypass, 0.0f) > 0.5f;
-        settings.common.wetDry = loadParamOr (params.wetDry, 1.0f);
-        settings.amount = juce::jlimit (0.0f, 1.0f, loadParamOr (params.amount, 0.0f));
-        settings.harmonicType = static_cast<SpectralHarmonicType> (
-            juce::jlimit (0, 3, static_cast<int> (loadParamOr (params.type, 0.0f))));
-
-        const auto freqANorm = juce::jlimit (0.0f, 1.0f, loadParamOr (params.freqA, 0.0f));
-        const auto freqBNorm = juce::jlimit (0.0f, 1.0f, loadParamOr (params.freqB, 1.0f));
-
-        settings.searchBandHz.minHz = normalisedToDtBlkHz (freqANorm, nyquist);
-        settings.searchBandHz.maxHz = normalisedToDtBlkHz (freqBNorm, nyquist);
-
-        contrastCard->setSettings (settings);
-    }
-
-    if (sawsCard != nullptr)
-    {
-        const auto& params = runtimeParamsFor (CardSchema::CardId::saws);
-        SawsCard::Settings settings;
-        const auto nyquist = juce::jmax (20.0f, static_cast<float> (getSampleRate() * 0.5));
-
-        settings.common.isBypassed = loadParamOr (params.bypass, 1.0f) > 0.5f;
-        settings.common.wetDry = loadParamOr (params.wetDry, 1.0f);
-        settings.amount = juce::jlimit (0.0f, 1.0f, loadParamOr (params.amount, 0.0f));
-        settings.harmonicType = static_cast<SpectralHarmonicType> (
-            juce::jlimit (0, 3, static_cast<int> (loadParamOr (params.type, 2.0f))));
-
-        const auto freqANorm = juce::jlimit (0.0f, 1.0f, loadParamOr (params.freqA, 0.0f));
-        const auto freqBNorm = juce::jlimit (0.0f, 1.0f, loadParamOr (params.freqB, 1.0f));
-
-        settings.searchBandHz.minHz = normalisedToDtBlkHz (freqANorm, nyquist);
-        settings.searchBandHz.maxHz = normalisedToDtBlkHz (freqBNorm, nyquist);
-
-        sawsCard->setSettings (settings);
-    }
-}
-
-//==============================================================================
-bool CognitoniBlkFxAudioProcessor::hasEditor() const
-{
-    return true; // (change this to false if you choose to not supply an editor)
-}
-
+bool CognitoniBlkFxAudioProcessor::hasEditor() const { return true; }
 juce::AudioProcessorEditor* CognitoniBlkFxAudioProcessor::createEditor()
 {
     return new CognitoniBlkFxAudioProcessorEditor (*this);
 }
 
 //==============================================================================
+//  prepareToPlay / releaseResources
+//==============================================================================
+void CognitoniBlkFxAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
+{
+    juce::ignoreUnused (samplesPerBlock);
+
+    const int prepareCh = juce::jmax (1, juce::jmax (getTotalNumInputChannels(), getTotalNumOutputChannels()));
+    fftProcessor.prepare (sampleRate, prepareCh);
+
+    FFTProcessor::Settings fftSettings;
+    fftSettings.overlapAmount = 0.499f;
+    fftSettings.fftOrder      = (blackLensParam != nullptr)
+                                    ? msToFftOrder (blackLensParam->load (std::memory_order_relaxed), sampleRate)
+                                    : FFTProcessor::defaultFftOrder;
+    fftProcessor.setSettings (fftSettings);
+
+    kDryDelaySize = fftProcessor.getFftSize();
+    setLatencySamples (kDryDelaySize);
+
+    // Initialise dry-delay ring buffers
+    dryDelayBuffers.assign ((size_t)prepareCh, std::vector<float> ((size_t)kDryDelaySize, 0.0f));
+    dryDelayWritePos.assign ((size_t)prepareCh, 0);
+
+    for (auto& card : cardRack)
+    {
+        card->setProcessingContext (sampleRate, kDryDelaySize);
+        card->setNumChannels (prepareCh);
+    }
+
+    pushParameterSnapshotToCards();
+}
+
+void CognitoniBlkFxAudioProcessor::releaseResources() { fftProcessor.reset(); }
+
+#ifndef JucePlugin_PreferredChannelConfigurations
+bool CognitoniBlkFxAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
+{
+  #if JucePlugin_IsMidiEffect
+    juce::ignoreUnused (layouts);
+    return true;
+  #else
+    if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
+     && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
+        return false;
+   #if ! JucePlugin_IsSynth
+    if (layouts.getMainOutputChannelSet() != layouts.getMainInputChannelSet())
+        return false;
+   #endif
+    return true;
+  #endif
+}
+#endif
+
+//==============================================================================
+//  processBlock
+//==============================================================================
+void CognitoniBlkFxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
+                                                  juce::MidiBuffer& midiMessages)
+{
+    juce::ScopedNoDenormals noDenormals;
+    juce::ignoreUnused (midiMessages);
+
+    const int totalIn  = getTotalNumInputChannels();
+    const int totalOut = getTotalNumOutputChannels();
+    const int bufCh    = buffer.getNumChannels();
+    lastInputChannels.store  (totalIn,  std::memory_order_relaxed);
+    lastOutputChannels.store (totalOut, std::memory_order_relaxed);
+
+    if (totalIn > 0 && totalOut > totalIn)
+    {
+        const int from = juce::jlimit (0, bufCh, totalIn);
+        const int to   = juce::jlimit (from, bufCh, totalOut);
+        for (int ch = from; ch < to; ++ch)
+            buffer.clear (ch, 0, buffer.getNumSamples());
+    }
+
+    // Input gain
+    const float igLin = juce::Decibels::decibelsToGain (loadParamOr (inputGainParam, 0.0f), -60.0f);
+    if (std::abs (igLin - 1.0f) > 1.0e-5f)
+        for (int ch = 0; ch < bufCh; ++ch)
+            buffer.applyGain (ch, 0, buffer.getNumSamples(), igLin);
+
+    // Capture pre-FFT dry copy
+    juce::AudioBuffer<float> dryBuffer;
+    dryBuffer.makeCopyOf (buffer, true);
+
+    // Check whether any slot is active
+    bool hasActiveSlot = false;
+    for (int s = 0; s < CardSchema::numSlots; ++s)
+    {
+        const auto& sp = slotRuntimeParams[(size_t)s];
+        if (cardTypeFromFloat (loadParamOr (sp.cardType, 0.0f)) == CardSchema::CardType::empty) continue;
+        if (loadParamOr (sp.bypass, 0.0f) > 0.5f) continue;
+        if (loadParamOr (sp.wetDry, 1.0f) > 1.0e-4f) { hasActiveSlot = true; break; }
+    }
+
+    if (! hasActiveSlot)
+    {
+        applyMasterWetDryMix (buffer, dryBuffer);
+        const float ogLin = juce::Decibels::decibelsToGain (loadParamOr (outputGainParam, 0.0f), -60.0f);
+        if (std::abs (ogLin - 1.0f) > 1.0e-5f)
+            for (int ch = 0; ch < bufCh; ++ch)
+                buffer.applyGain (ch, 0, buffer.getNumSamples(), ogLin);
+
+        double energy = 0.0;
+        const int ch2 = juce::jmin (bufCh, dryBuffer.getNumChannels());
+        const int s2  = juce::jmin (buffer.getNumSamples(), dryBuffer.getNumSamples());
+        for (int ch = 0; ch < ch2; ++ch)
+        {
+            const auto* d = buffer.getReadPointer (ch);
+            for (int i = 0; i < s2; ++i) { const double v = (double)d[i]; energy += v * v; }
+        }
+        const float rms = (float)std::sqrt (energy / (double)juce::jmax (1, ch2 * s2));
+        lastInputRms.store (rms, std::memory_order_relaxed);
+        lastOutputRms.store (rms, std::memory_order_relaxed);
+        lastSanitisedSamples.store (0, std::memory_order_relaxed);
+        return;
+    }
+
+    // Update parameters and run FFT
+    pushParameterSnapshotToCards();
+
+    // Detect blackLens (FFT window) changes and rebuild if needed
+    if (blackLensParam != nullptr)
+    {
+        const int reqOrder = msToFftOrder (blackLensParam->load (std::memory_order_relaxed), getSampleRate());
+        if (reqOrder != fftProcessor.getFftOrder())
+        {
+            const int numCh = (int)dryDelayBuffers.size();
+            const double sr = getSampleRate();
+
+            FFTProcessor::Settings fftSettings;
+            fftSettings.overlapAmount = 0.499f;
+            fftSettings.fftOrder      = reqOrder;
+            fftProcessor.setSettings (fftSettings);
+
+            kDryDelaySize = fftProcessor.getFftSize();
+            setLatencySamples (kDryDelaySize);
+
+            dryDelayBuffers.assign ((size_t)numCh, std::vector<float> ((size_t)kDryDelaySize, 0.0f));
+            dryDelayWritePos.assign ((size_t)numCh, 0);
+
+            for (auto& card : cardRack)
+            {
+                card->setProcessingContext (sr, kDryDelaySize);
+                card->setNumChannels (numCh);
+            }
+        }
+    }
+
+    FFTProcessor::Settings fftSettings;
+    fftSettings.overlapAmount = 0.499f;
+    fftSettings.fftOrder      = fftProcessor.getFftOrder();
+    fftProcessor.setSettings (fftSettings);
+    fftProcessor.processBlock (buffer, cardRack);
+
+    // Sanitise NaN/Inf
+    const int ch2 = juce::jmin (bufCh, dryBuffer.getNumChannels());
+    const int s2  = juce::jmin (buffer.getNumSamples(), dryBuffer.getNumSamples());
+    int sanitised = 0;
+    double inputEnergy = 0.0, outputEnergy = 0.0;
+    for (int ch = 0; ch < ch2; ++ch)
+    {
+        const auto* in  = dryBuffer.getReadPointer (ch);
+        auto*       out = buffer.getWritePointer (ch);
+        for (int i = 0; i < s2; ++i)
+        {
+            const double inV = (double)in[i];
+            auto outV = (double)out[i];
+            if (! std::isfinite (outV)) { out[i] = in[i]; outV = inV; ++sanitised; }
+            inputEnergy  += inV * inV;
+            outputEnergy += outV * outV;
+        }
+    }
+
+    // Delay the dry buffer by kDryDelaySize samples to align with FFT latency
+    const int numSamples = dryBuffer.getNumSamples();
+    const int numDelayCh = (int)dryDelayBuffers.size();
+    for (int ch = 0; ch < juce::jmin (numDelayCh, dryBuffer.getNumChannels()); ++ch)
+    {
+        auto*  dryData  = dryBuffer.getWritePointer (ch);
+        auto&  delayBuf = dryDelayBuffers[(size_t)ch];
+        int&   wPos     = dryDelayWritePos[(size_t)ch];
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const float delayed = delayBuf[(size_t)wPos];
+            delayBuf[(size_t)wPos] = dryData[i];
+            dryData[i] = delayed;
+            if (++wPos >= kDryDelaySize) wPos = 0;
+        }
+    }
+
+    applyMasterWetDryMix (buffer, dryBuffer);
+
+    // Output gain
+    const float ogLin = juce::Decibels::decibelsToGain (loadParamOr (outputGainParam, 0.0f), -60.0f);
+    if (std::abs (ogLin - 1.0f) > 1.0e-5f)
+        for (int ch = 0; ch < bufCh; ++ch)
+            buffer.applyGain (ch, 0, buffer.getNumSamples(), ogLin);
+
+    // Output RMS
+    double mixedEnergy = 0.0;
+    for (int ch = 0; ch < ch2; ++ch)
+    {
+        const auto* d = buffer.getReadPointer (ch);
+        for (int i = 0; i < s2; ++i) { const double v = (double)d[i]; mixedEnergy += v * v; }
+    }
+    const double denom = (double)juce::jmax (1, ch2 * s2);
+    lastInputRms.store  ((float)std::sqrt (inputEnergy  / denom), std::memory_order_relaxed);
+    lastOutputRms.store ((float)std::sqrt (mixedEnergy  / denom), std::memory_order_relaxed);
+    lastSanitisedSamples.store (sanitised, std::memory_order_relaxed);
+}
+
+//==============================================================================
+//  applyMasterWetDryMix
+//==============================================================================
+void CognitoniBlkFxAudioProcessor::applyMasterWetDryMix (juce::AudioBuffer<float>& wetBuffer,
+                                                          const juce::AudioBuffer<float>& dryBuffer) const
+{
+    float wet = 1.0f;
+    if (masterWetDryParam != nullptr)
+        wet = juce::jlimit (0.0f, 1.0f, masterWetDryParam->load (std::memory_order_relaxed));
+    else if (auto* p = apvts.getParameter (paramMasterWetDry))
+        wet = juce::jlimit (0.0f, 1.0f, p->getValue());
+
+    if (wet >= 1.0f) return;
+    if (wet <= 0.0f) { wetBuffer.makeCopyOf (dryBuffer, true); return; }
+
+    const float dry = 1.0f - wet;
+    const int ch2   = juce::jmin (wetBuffer.getNumChannels(), dryBuffer.getNumChannels());
+    const int s2    = juce::jmin (wetBuffer.getNumSamples(),  dryBuffer.getNumSamples());
+    for (int ch = 0; ch < ch2; ++ch)
+    {
+        auto*       w = wetBuffer.getWritePointer (ch);
+        const auto* d = dryBuffer.getReadPointer  (ch);
+        for (int i = 0; i < s2; ++i)
+            w[i] = w[i] * wet + d[i] * dry;
+    }
+}
+
+//==============================================================================
+//  setParameterToPlainValue
+//==============================================================================
+void CognitoniBlkFxAudioProcessor::setParameterToPlainValue (const juce::String& parameterId,
+                                                              float plainValue)
+{
+    if (auto* p = apvts.getParameter (parameterId))
+    {
+        if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
+            p->setValueNotifyingHost (rp->convertTo0to1 (plainValue));
+        else
+            p->setValueNotifyingHost (plainValue);
+    }
+}
+
+//==============================================================================
+//  applyPresetByIndex
+//==============================================================================
+void CognitoniBlkFxAudioProcessor::applyPresetByIndex (int presetIndex)
+{
+    const auto& presets = getPresetDefinitions();
+    if (presets.empty()) return;
+
+    const int clamped = juce::jlimit (0, (int)presets.size() - 1, presetIndex);
+    const auto& preset = presets[(size_t)clamped];
+
+    auto beginGesture = [this] (const juce::String& id) {
+        if (auto* p = apvts.getParameter (id)) p->beginChangeGesture();
+    };
+    auto endGesture = [this] (const juce::String& id) {
+        if (auto* p = apvts.getParameter (id)) p->endChangeGesture();
+    };
+
+    for (const auto& gv : preset.globalValues)      beginGesture (gv.parameterId);
+    for (const auto& sv : preset.slots)
+        for (const auto& v : sv.values)              beginGesture (v.parameterId);
+
+    for (const auto& gv : preset.globalValues)      setParameterToPlainValue (gv.parameterId, gv.plainValue);
+    for (const auto& sv : preset.slots)
+        for (const auto& v : sv.values)              setParameterToPlainValue (v.parameterId, v.plainValue);
+
+    for (const auto& gv : preset.globalValues)      endGesture (gv.parameterId);
+    for (const auto& sv : preset.slots)
+        for (const auto& v : sv.values)              endGesture (v.parameterId);
+
+    currentPresetIndex.store (clamped, std::memory_order_relaxed);
+
+    lastBuiltSlotTypes = { -1, -1, -1 };
+    rebuildCardRack();
+    pushParameterSnapshotToCards();
+}
+
+//==============================================================================
+//  Save / delete presets
+//==============================================================================
+bool CognitoniBlkFxAudioProcessor::saveCurrentPresetAs (const juce::String& presetName)
+{
+    if (presetName.isEmpty()) return false;
+
+    PresetDefinition newPreset;
+    newPreset.name = presetName;
+    newPreset.userPreset = true;
+    newPreset.globalValues = {
+        { paramMasterWetDry, loadParamOr (masterWetDryParam, 1.0f) },
+        { paramBlackLens,    loadParamOr (blackLensParam,    92.2f) }
+    };
+
+    for (int s = 0; s < CardSchema::numSlots; ++s)
+    {
+        SlotPresetValues sv;
+        sv.slotIndex = s;
+        auto addV = [&] (const juce::String& id) {
+            if (auto* p = apvts.getRawParameterValue (id))
+                sv.values.push_back ({ id, p->load (std::memory_order_relaxed) });
+        };
+        addV (CardSchema::cardTypeParam (s));
+        addV (CardSchema::amountParam   (s));
+        addV (CardSchema::harmTypeParam (s));
+        addV (CardSchema::freqAParam    (s));
+        addV (CardSchema::freqBParam    (s));
+        addV (CardSchema::bypassParam   (s));
+        addV (CardSchema::wetDryParam   (s));
+        newPreset.slots.push_back (std::move (sv));
+    }
+
+    presetDefinitions.push_back (newPreset);
+    currentPresetIndex.store ((int)presetDefinitions.size() - 1, std::memory_order_relaxed);
+    return savePresetsToJson();
+}
+
+bool CognitoniBlkFxAudioProcessor::deletePresetByIndex (int presetIndex)
+{
+    if (presetIndex < 0 || presetIndex >= (int)presetDefinitions.size()) return false;
+    if (! presetDefinitions[(size_t)presetIndex].userPreset) return false;
+
+    presetDefinitions.erase (presetDefinitions.begin() + presetIndex);
+    if (presetDefinitions.empty())
+        presetDefinitions = createDefaultPresetDefinitions();
+
+    int nextIndex = 0;
+    for (int i = 0; i < (int)presetDefinitions.size(); ++i)
+        if (presetDefinitions[(size_t)i].name == "Empty") { nextIndex = i; break; }
+
+    applyPresetByIndex (nextIndex);
+    return savePresetsToJson();
+}
+
+bool CognitoniBlkFxAudioProcessor::isPresetUserDeletable (int presetIndex) const noexcept
+{
+    if (presetIndex < 0 || presetIndex >= (int)presetDefinitions.size()) return false;
+    return presetDefinitions[(size_t)presetIndex].userPreset;
+}
+
+int CognitoniBlkFxAudioProcessor::getCurrentPresetIndex() const noexcept
+{
+    return currentPresetIndex.load (std::memory_order_relaxed);
+}
+
+//==============================================================================
+//  State (DAW session)
+//==============================================================================
 void CognitoniBlkFxAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     if (auto state = apvts.copyState(); state.isValid())
-    {
         if (auto xml = state.createXml())
             copyXmlToBinary (*xml, destData);
-    }
 }
 
 void CognitoniBlkFxAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
@@ -979,123 +846,99 @@ void CognitoniBlkFxAudioProcessor::setStateInformation (const void* data, int si
     {
         const auto vt = juce::ValueTree::fromXml (*xml);
         if (vt.isValid() && vt.hasType (apvts.state.getType()))
+        {
             apvts.replaceState (vt);
+            lastBuiltSlotTypes = { -1, -1, -1 };
+            rebuildCardRack();
+            pushParameterSnapshotToCards();
+        }
     }
 }
 
+//==============================================================================
+//  JSON preset persistence
+//==============================================================================
 juce::File CognitoniBlkFxAudioProcessor::getPresetStorageFile() const
 {
-    auto directory = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-        .getChildFile ("CognitoniBlkFx");
-
-    if (! directory.exists())
-        directory.createDirectory();
-
-    return directory.getChildFile ("presets.json");
+    auto dir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+               .getChildFile ("CognitoniBlkFx");
+    if (! dir.exists()) dir.createDirectory();
+    return dir.getChildFile ("presets.json");
 }
 
 juce::var CognitoniBlkFxAudioProcessor::serializePresetToJson (const PresetDefinition& preset)
 {
-    auto* presetObj = new juce::DynamicObject();
-    presetObj->setProperty ("name", preset.name);
-    presetObj->setProperty ("userPreset", preset.userPreset);
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty ("name",       preset.name);
+    obj->setProperty ("userPreset", preset.userPreset);
 
     auto* globalObj = new juce::DynamicObject();
-    for (const auto& global : preset.globalValues)
-        globalObj->setProperty (global.parameterId, global.plainValue);
-    presetObj->setProperty ("global", juce::var (globalObj));
+    for (const auto& gv : preset.globalValues)
+        globalObj->setProperty (gv.parameterId, gv.plainValue);
+    obj->setProperty ("global", juce::var (globalObj));
 
-    auto* cardsObj = new juce::DynamicObject();
-    for (const auto& cardPreset : preset.cards)
+    juce::Array<juce::var> slotsArray;
+    for (const auto& sv : preset.slots)
     {
-        auto* cardObj = new juce::DynamicObject();
-        for (const auto& value : cardPreset.values)
-        {
-            for (int k = 0; k <= static_cast<int> (CardSchema::Key::wetDry); ++k)
-            {
-                const auto key = static_cast<CardSchema::Key> (k);
-                if (value.parameterId == CardSchema::paramIdFor (cardPreset.cardId, key))
-                {
-                    cardObj->setProperty (CardSchema::keyName (key), value.plainValue);
-                    break;
-                }
-            }
-        }
-
-        cardsObj->setProperty (CardSchema::cardName (cardPreset.cardId), juce::var (cardObj));
+        auto* slotObj = new juce::DynamicObject();
+        slotObj->setProperty ("slotIndex", sv.slotIndex);
+        for (const auto& v : sv.values)
+            slotObj->setProperty (v.parameterId, v.plainValue);
+        slotsArray.add (juce::var (slotObj));
     }
-
-    presetObj->setProperty ("cards", juce::var (cardsObj));
-    return juce::var (presetObj);
+    obj->setProperty ("slots", slotsArray);
+    return juce::var (obj);
 }
 
-bool CognitoniBlkFxAudioProcessor::deserializePresetFromJson (const juce::var& jsonValue, PresetDefinition& outPreset)
+bool CognitoniBlkFxAudioProcessor::deserializePresetFromJson (const juce::var& jsonValue,
+                                                               PresetDefinition& outPreset)
 {
-    auto* presetObj = jsonValue.getDynamicObject();
-    if (presetObj == nullptr)
-        return false;
+    auto* obj = jsonValue.getDynamicObject();
+    if (obj == nullptr) return false;
 
     outPreset = {};
-    outPreset.name = presetObj->getProperty ("name").toString();
-    outPreset.userPreset = static_cast<bool> (presetObj->getProperty ("userPreset"));
-    if (outPreset.name.isEmpty())
-        return false;
+    outPreset.name       = obj->getProperty ("name").toString();
+    outPreset.userPreset = static_cast<bool> (obj->getProperty ("userPreset"));
+    if (outPreset.name.isEmpty()) return false;
 
-    if (auto* globalObj = presetObj->getProperty ("global").getDynamicObject())
+    if (auto* globalObj = obj->getProperty ("global").getDynamicObject())
     {
         const auto& props = globalObj->getProperties();
         for (int i = 0; i < props.size(); ++i)
+            outPreset.globalValues.push_back ({ props.getName (i).toString(),
+                                                static_cast<float> (props.getValueAt (i)) });
+    }
+
+    if (auto* slotsArr = obj->getProperty ("slots").getArray())
+    {
+        for (const auto& slotVar : *slotsArr)
         {
-            PresetParameterValue value;
-            value.parameterId = props.getName (i).toString();
-            value.plainValue = static_cast<float> (props.getValueAt (i));
-            outPreset.globalValues.push_back (value);
+            if (auto* slotObj = slotVar.getDynamicObject())
+            {
+                SlotPresetValues sv;
+                sv.slotIndex = static_cast<int> (slotObj->getProperty ("slotIndex"));
+                const auto& props = slotObj->getProperties();
+                for (int i = 0; i < props.size(); ++i)
+                {
+                    const auto key = props.getName (i).toString();
+                    if (key == "slotIndex") continue;
+                    sv.values.push_back ({ key, static_cast<float> (props.getValueAt (i)) });
+                }
+                outPreset.slots.push_back (std::move (sv));
+            }
         }
     }
 
-    auto parseCard = [&outPreset, presetObj] (const juce::String& cardName, CardSchema::CardId cardId)
-    {
-        auto* cardsObj = presetObj->getProperty ("cards").getDynamicObject();
-        if (cardsObj == nullptr)
-            return;
-
-        auto* cardObj = cardsObj->getProperty (cardName).getDynamicObject();
-        if (cardObj == nullptr)
-            return;
-
-        PresetDefinition::CardPresetDefinition card;
-        card.cardId = cardId;
-
-        const auto& props = cardObj->getProperties();
-        for (int i = 0; i < props.size(); ++i)
-        {
-            const auto keyVar = props.getName (i).toString();
-            const auto key = CardSchema::keyFromName (keyVar);
-            PresetParameterValue value;
-            value.parameterId = CardSchema::paramIdFor (cardId, key);
-            value.plainValue = static_cast<float> (props.getValueAt (i));
-            card.values.push_back (value);
-        }
-
-        outPreset.cards.push_back (card);
-    };
-
-    parseCard ("AutoHarm", CardSchema::CardId::autoHarm);
-    parseCard ("Contrast", CardSchema::CardId::contrast);
-    parseCard ("Saws", CardSchema::CardId::saws);
-
-    return ! outPreset.cards.empty();
+    return ! outPreset.slots.empty() || ! outPreset.globalValues.empty();
 }
 
 bool CognitoniBlkFxAudioProcessor::loadPresetsFromJson()
 {
     const auto file = getPresetStorageFile();
-    if (! file.existsAsFile())
-        return savePresetsToJson();
+    if (! file.existsAsFile()) return savePresetsToJson();
 
     const auto parsed = juce::JSON::parse (file);
-    if (parsed.isVoid())
-        return false;
+    if (parsed.isVoid()) return false;
 
     juce::Array<juce::var>* presetsArray = nullptr;
     if (auto* rootObj = parsed.getDynamicObject())
@@ -1108,32 +951,14 @@ bool CognitoniBlkFxAudioProcessor::loadPresetsFromJson()
         presetsArray = parsed.getArray();
     }
 
-    if (presetsArray == nullptr)
-        return false;
+    if (presetsArray == nullptr) return false;
 
-    std::vector<PresetDefinition> loaded;
     for (const auto& value : *presetsArray)
     {
-        PresetDefinition preset;
-        if (deserializePresetFromJson (value, preset))
-        {
-            if (preset.userPreset)
-            {
-                loaded.push_back (std::move (preset));
-                continue;
-            }
-
-            if (! (preset.name == "AutoHarm"
-                   || preset.name == "Empty"))
-            {
-                preset.userPreset = true;
-                loaded.push_back (std::move (preset));
-            }
-        }
+        PresetDefinition p;
+        if (deserializePresetFromJson (value, p) && p.userPreset)
+            presetDefinitions.push_back (std::move (p));
     }
-
-    if (! loaded.empty())
-        presetDefinitions.insert (presetDefinitions.end(), loaded.begin(), loaded.end());
 
     return ! presetDefinitions.empty();
 }
@@ -1141,20 +966,15 @@ bool CognitoniBlkFxAudioProcessor::loadPresetsFromJson()
 bool CognitoniBlkFxAudioProcessor::savePresetsToJson() const
 {
     auto* rootObj = new juce::DynamicObject();
-    juce::Array<juce::var> presetsArray;
-
-    for (const auto& preset : presetDefinitions)
-    {
-        if (preset.userPreset)
-            presetsArray.add (serializePresetToJson (preset));
-    }
-
-    rootObj->setProperty ("presets", presetsArray);
+    juce::Array<juce::var> arr;
+    for (const auto& p : presetDefinitions)
+        if (p.userPreset)
+            arr.add (serializePresetToJson (p));
+    rootObj->setProperty ("presets", arr);
     return getPresetStorageFile().replaceWithText (juce::JSON::toString (juce::var (rootObj), true));
 }
 
 //==============================================================================
-// This creates new instances of the plugin..
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new CognitoniBlkFxAudioProcessor();

@@ -48,6 +48,12 @@ public:
         juce::ignoreUnused (sampleRate, fftSize);
     }
 
+    /** Called once per prepareToPlay to let cards know the stereo width. */
+    virtual void setNumChannels (int numChannels)
+    {
+        juce::ignoreUnused (numChannels);
+    }
+
     virtual void process (juce::dsp::Complex<float>* bins, int numBins) = 0;
 
 protected:

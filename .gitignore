@@ -9,6 +9,7 @@ JuceLibraryCode/
 
 # Local reference copy of original project (not required to build this rewrite)
 OriginalDtBlkFx/
+context.md
 
 # Binary/artifact outputs
 *.dll

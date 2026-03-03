@@ -5,6 +5,79 @@
 
 namespace CardSchema
 {
+    // ── Card type enum (slot content) ────────────────────────────────────────
+    enum class CardType : int
+    {
+        empty    = 0,   // slot is inactive / unassigned
+        autoHarm = 1,
+        contrast = 2,
+        saws     = 3,
+        smear    = 4
+    };
+
+    static constexpr int numSlots    = 3;
+    static constexpr int numCardTypes = 5;   // 0..4
+
+    // ── Per-slot parameter key names (suffix appended to "slot{N}_") ─────────
+    inline juce::String slotParam (int slot, const char* key)
+    {
+        return "slot" + juce::String (slot) + "_" + key;
+    }
+
+    inline juce::String cardTypeParam (int slot) { return slotParam (slot, "cardType"); }
+    inline juce::String amountParam   (int slot) { return slotParam (slot, "amount");   }
+    inline juce::String harmTypeParam (int slot) { return slotParam (slot, "harmType"); }
+    inline juce::String freqAParam    (int slot) { return slotParam (slot, "freqA");    }
+    inline juce::String freqBParam    (int slot) { return slotParam (slot, "freqB");    }
+    inline juce::String bypassParam   (int slot) { return slotParam (slot, "bypass");   }
+    inline juce::String wetDryParam   (int slot) { return slotParam (slot, "wetDry");   }
+
+    // ── CardType metadata ─────────────────────────────────────────────────────
+    inline const char* cardTypeName (CardType t) noexcept
+    {
+        switch (t)
+        {
+            case CardType::autoHarm: return "AutoHarm";
+            case CardType::contrast: return "Contrast";
+            case CardType::saws:     return "Saws";
+            case CardType::smear:    return "Smear";
+            default:                 return "Empty";
+        }
+    }
+
+    inline juce::Colour accentColour (CardType t) noexcept
+    {
+        switch (t)
+        {
+            case CardType::autoHarm: return juce::Colour::fromRGB (255, 178, 100);  // peach
+            case CardType::contrast: return juce::Colour::fromRGB (178, 145, 235);  // lavender
+            case CardType::saws:     return juce::Colour::fromRGB (100, 215, 178);  // mint
+            case CardType::smear:    return juce::Colour::fromRGB (115, 185, 245);  // sky-blue
+            default:                 return juce::Colour::fromRGB (185, 180, 172);  // neutral
+        }
+    }
+
+    // Whether the given card type uses the harmonic-type selector knob
+    // AutoHarm uses a single continuous wetDry knob that sweeps 0%Both→100%Between
+    inline bool hasHarmonicSelector (CardType /*t*/) noexcept
+    {
+        return false;
+    }
+
+    // Display label for the "Value" knob per card type
+    inline const char* wetDryKnobLabel (CardType t) noexcept
+    {
+        switch (t)
+        {
+            case CardType::autoHarm: return "Type";
+            case CardType::smear:    return "Smear";
+            default:                 return "Value";
+        }
+    }
+
+    // ── Legacy compatibility: old-style struct kept for preset migration ───────
+    // These are no longer used for parameter IDs but kept to avoid break in
+    // serialisation helper until full migration is done.
     enum class CardId : int
     {
         autoHarm = 0,

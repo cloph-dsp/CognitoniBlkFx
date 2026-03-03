@@ -1,4 +1,4 @@
-/*
+﻿/*
   ==============================================================================
 
     This file contains the basic framework code for a JUCE plugin processor.
@@ -12,6 +12,7 @@
 #include "Cards/AutoHarmCard.h"
 #include "Cards/ContrastCard.h"
 #include "Cards/SawsCard.h"
+#include "Cards/SmearCard.h"
 #include "CardSchema.h"
 #include "SpectralEngine/FFTProcessor.h"
 
@@ -20,8 +21,6 @@
 #include <vector>
 
 //==============================================================================
-/**
-*/
 class CognitoniBlkFxAudioProcessor  : public juce::AudioProcessor
 {
 public:
@@ -45,7 +44,6 @@ public:
 
     //==============================================================================
     const juce::String getName() const override;
-
     bool acceptsMidi() const override;
     bool producesMidi() const override;
     bool isMidiEffect() const override;
@@ -64,47 +62,50 @@ public:
 
     juce::AudioProcessorValueTreeState& getAPVTS() noexcept { return apvts; }
     float getCurrentNyquistHz() const noexcept;
-    std::pair<float, float> getAutoHarmSearchBandHzForUi() const noexcept;
     juce::StringArray getPresetNames() const;
     void applyPresetByIndex (int presetIndex);
     bool saveCurrentPresetAs (const juce::String& presetName);
     bool deletePresetByIndex (int presetIndex);
     bool isPresetUserDeletable (int presetIndex) const noexcept;
     int getCurrentPresetIndex() const noexcept;
-    float getLastInputRms() const noexcept;
+    float getLastInputRms()  const noexcept;
     float getLastOutputRms() const noexcept;
-    int getLastSanitisedSamples() const noexcept;
-    int getLastInputChannels() const noexcept;
-    int getLastOutputChannels() const noexcept;
+    int   getLastSanitisedSamples() const noexcept;
+    int   getLastInputChannels()  const noexcept;
+    int   getLastOutputChannels() const noexcept;
 
 private:
-  struct CardRuntimeParameters
-  {
-    std::atomic<float>* amount = nullptr;
-    std::atomic<float>* type = nullptr;
-    std::atomic<float>* freqA = nullptr;
-    std::atomic<float>* freqB = nullptr;
-    std::atomic<float>* bypass = nullptr;
-    std::atomic<float>* wetDry = nullptr;
-  };
+    // Per-slot runtime parameter pointers
+    struct SlotRuntimeParameters
+    {
+        std::atomic<float>* cardType = nullptr;   // 0..4 float (CardType enum)
+        std::atomic<float>* amount   = nullptr;
+        std::atomic<float>* harmType = nullptr;
+        std::atomic<float>* freqA    = nullptr;
+        std::atomic<float>* freqB    = nullptr;
+        std::atomic<float>* bypass   = nullptr;
+        std::atomic<float>* wetDry   = nullptr;
+    };
 
+    // Preset storage
     struct PresetParameterValue
     {
-      juce::String parameterId;
-      float plainValue = 0.0f;
+        juce::String parameterId;
+        float plainValue = 0.0f;
+    };
+
+    struct SlotPresetValues
+    {
+        int   slotIndex = 0;
+        std::vector<PresetParameterValue> values;  // includes cardType param
     };
 
     struct PresetDefinition
     {
-      juce::String name;
-      bool userPreset = false;
-      std::vector<PresetParameterValue> globalValues;
-      struct CardPresetDefinition
-      {
-          CardSchema::CardId cardId = CardSchema::CardId::autoHarm;
-          std::vector<PresetParameterValue> values;
-      };
-      std::vector<CardPresetDefinition> cards;
+        juce::String name;
+        bool userPreset = false;
+        std::vector<PresetParameterValue> globalValues;
+        std::vector<SlotPresetValues>     slots;
     };
 
     const std::vector<PresetDefinition>& getPresetDefinitions() const;
@@ -112,39 +113,49 @@ private:
     bool loadPresetsFromJson();
     bool savePresetsToJson() const;
     juce::File getPresetStorageFile() const;
-    static juce::var serializePresetToJson (const PresetDefinition& preset);
-    static bool deserializePresetFromJson (const juce::var& jsonValue, PresetDefinition& outPreset);
+    static juce::var  serializePresetToJson    (const PresetDefinition& preset);
+    static bool       deserializePresetFromJson (const juce::var& jsonValue,
+                                                 PresetDefinition& outPreset);
     void setParameterToPlainValue (const juce::String& parameterId, float plainValue);
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    void initialiseCardRack();
-    void pushParameterSnapshotToCards();
     void bindRuntimeParameters();
-    CardRuntimeParameters& runtimeParamsFor (CardSchema::CardId cardId) noexcept;
-    const CardRuntimeParameters& runtimeParamsFor (CardSchema::CardId cardId) const noexcept;
+    void pushParameterSnapshotToCards();
+    void rebuildCardRack();   // rebuilds SpectralCard instances to match slot types
     void applyMasterWetDryMix (juce::AudioBuffer<float>& wetBuffer,
                                const juce::AudioBuffer<float>& dryBuffer) const;
 
     juce::AudioProcessorValueTreeState apvts;
 
-    std::array<CardRuntimeParameters, 3> cardRuntimeParams;
+    // Per-slot runtime params + global params
+    std::array<SlotRuntimeParameters, CardSchema::numSlots> slotRuntimeParams;
     std::atomic<float>* masterWetDryParam = nullptr;
     std::atomic<float>* inputGainParam    = nullptr;
     std::atomic<float>* outputGainParam   = nullptr;
+    std::atomic<float>* blackLensParam    = nullptr;
 
+    // Card rack — rebuilt when slot cardType params change
     FFTProcessor fftProcessor;
     std::vector<std::unique_ptr<SpectralCard>> cardRack;
+    // Track the cardType value last used to build each slot's card so we
+    // only reallocate when the type actually changes.
+    std::array<int, CardSchema::numSlots> lastBuiltSlotTypes { -1, -1, -1 };
 
-    AutoHarmCard* autoHarmCard = nullptr;
-    ContrastCard* contrastCard = nullptr;
-    SawsCard* sawsCard = nullptr;
+    // Dry-signal delay compensation:
+    // Delay the dry reference by the current FFT window size so wet/dry are
+    // time-aligned.  Updated in prepareToPlay whenever the FFT order changes.
+    int kDryDelaySize = FFTProcessor::defaultFftSize;
+    std::vector<std::vector<float>> dryDelayBuffers;   // [channel][kDryDelaySize]
+    std::vector<int>                dryDelayWritePos;  // per-channel write position
+
+    // Preset & meters
     std::vector<PresetDefinition> presetDefinitions;
-    std::atomic<int> currentPresetIndex { 0 };
-    std::atomic<float> lastInputRms { 0.0f };
-    std::atomic<float> lastOutputRms { 0.0f };
-    std::atomic<int> lastSanitisedSamples { 0 };
-    std::atomic<int> lastInputChannels { 0 };
-    std::atomic<int> lastOutputChannels { 0 };
+    std::atomic<int>   currentPresetIndex   { 0 };
+    std::atomic<float> lastInputRms         { 0.0f };
+    std::atomic<float> lastOutputRms        { 0.0f };
+    std::atomic<int>   lastSanitisedSamples { 0 };
+    std::atomic<int>   lastInputChannels    { 0 };
+    std::atomic<int>   lastOutputChannels   { 0 };
 
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CognitoniBlkFxAudioProcessor)

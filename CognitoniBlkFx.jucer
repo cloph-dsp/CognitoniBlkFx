@@ -29,6 +29,8 @@
         <FILE id="aHM2d4" name="ContrastCard.h" compile="0" resource="0" file="Source/Cards/ContrastCard.h"/>
         <FILE id="aHM2d5" name="ContrastCard.cpp" compile="1" resource="0"
               file="Source/Cards/ContrastCard.cpp"/>
+        <FILE id="smrC01" name="SmearCard.h" compile="0" resource="0" file="Source/Cards/SmearCard.h"/>
+        <FILE id="smrC02" name="SmearCard.cpp" compile="1" resource="0" file="Source/Cards/SmearCard.cpp"/>
       </GROUP>
       <GROUP id="Gk9w8G" name="SpectralEngine">
         <FILE id="aHM2d6" name="FFTProcessor.h" compile="0" resource="0" file="Source/SpectralEngine/FFTProcessor.h"/>
