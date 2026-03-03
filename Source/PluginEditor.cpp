@@ -900,7 +900,7 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
 
     versionLabel.setButtonText ("v0.1.0");
     versionLabel.setURL (juce::URL ("https://github.com/toni-lyttinen/CognitoniBlkFx/tags"));
-    versionLabel.setFont (juce::Font (juce::FontOptions().withName ("Segoe UI").withHeight (12.0f)), false, juce::Justification::centred);
+    versionLabel.setFont (juce::Font (juce::FontOptions().withName ("Segoe UI").withHeight (16.0f)), false, juce::Justification::centred);
     versionLabel.setColour (juce::HyperlinkButton::textColourId, juce::Colour::fromRGB (148, 144, 138));
     addAndMakeVisible (versionLabel);
 
