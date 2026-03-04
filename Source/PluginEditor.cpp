@@ -36,6 +36,11 @@ juce::String normalisedToDbText (double normalised)
     return juce::String (v * 100.0 - 60.0, 1) + " dB";
 }
 
+juce::String gainDbText (double valueDb)
+{
+    return juce::String (valueDb, 1) + " dB";
+}
+
 juce::String autoHarmValueText (double normalised)
 {
     const auto v      = juce::jlimit (0.0, 1.0, normalised);
@@ -68,6 +73,20 @@ juce::String sawsValueText (double normalised)
         return juce::String (juce::roundToInt (v * 200.0)) + "% Scale";
     return juce::String (juce::roundToInt ((v - 0.5) * 200.0)) + "% Copy";
 }
+
+juce::Font makeMontserratUiFont (const juce::Typeface::Ptr& embeddedTypeface,
+                                 float height,
+                                 const juce::String& fallbackStyle = {})
+{
+    if (embeddedTypeface != nullptr)
+        return juce::Font (juce::FontOptions (embeddedTypeface).withHeight (height));
+
+    auto opts = juce::FontOptions().withName ("Montserrat").withHeight (height);
+    if (fallbackStyle.isNotEmpty())
+        opts = opts.withStyle (fallbackStyle);
+
+    return juce::Font (opts);
+}
 } // namespace
 
 //==============================================================================
@@ -75,6 +94,9 @@ juce::String sawsValueText (double normalised)
 //==============================================================================
 CognitoniBlkFxAudioProcessorEditor::CardComponent::CardComponent()
 {
+    if (auto dragXml = juce::parseXML (EmbeddedIcons::dragSvg))
+        dragHandleIcon = juce::Drawable::createFromSVG (*dragXml);
+
     addAndMakeVisible (title);
     title.setJustificationType (juce::Justification::centredLeft);
     title.setFont (juce::FontOptions().withName ("Montserrat").withHeight (12.5f).withStyle ("SemiBold"));
@@ -252,27 +274,14 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::paint (juce::Graphics& g
     // Card body
     g.setColour (juce::Colour::fromRGB (251, 249, 246));
     g.fillRoundedRectangle (bounds, r);
-    // Highlight border when drag is over this card
-    if (isDragTarget)
-    {
-        g.setColour (accent.withAlpha (0.55f));
-        g.drawRoundedRectangle (bounds.reduced (1.5f), r, 2.5f);
-        // Extra inner glow to show card will land here
-        g.setColour (accent.withAlpha (0.10f));
-        g.fillRoundedRectangle (bounds, r);
-    }
-    else
-    {
-        g.setColour (juce::Colour::fromRGB (215, 210, 204));
-        g.drawRoundedRectangle (bounds.reduced (0.5f), r, 1.0f);
-    }
+    g.setColour (juce::Colour::fromRGB (215, 210, 204));
+    g.drawRoundedRectangle (bounds.reduced (0.5f), r, 1.0f);
 
     // Dim overlay while this card is being dragged (source card feedback)
     if (isDragSource)
     {
         g.setColour (juce::Colour::fromRGBA (220, 215, 208, 160));
         g.fillRoundedRectangle (bounds, r);
-        // Dashed border to show "slot will be swapped"
         const float dash[] = { 6.0f, 4.0f };
         juce::Path dashed;
         dashed.addRoundedRectangle (bounds.reduced (3.0f), r - 1.0f);
@@ -285,31 +294,32 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::paint (juce::Graphics& g
 
     // Separator line below title
     const float titleRowH = std::round (30.0f * sf);
-    const float titleRowY = std::round (6.0f * sf);
+    const float titleRowY = std::round (14.0f * sf);
     const float sepY      = bounds.getY() + titleRowY + titleRowH + 1.0f;
     const float sepInset  = std::round (14.0f * sf);
     g.setColour (juce::Colour::fromRGB (225, 220, 214));
     g.drawLine (bounds.getX() + sepInset, sepY, bounds.getRight() - sepInset, sepY, 1.0f);
 
-    // Drag grip indicator (2 cols × 3 rows of dots) just right of bypass button
+    // Drag handle icon centered above title row
     {
-        const float gPadX  = std::round (13.0f * sf);
-        const float gBypW  = std::round (20.0f * sf);
-        const float gripX  = bounds.getX() + gPadX + gBypW + std::round (6.0f * sf);
-        const float gripCY = bounds.getY() + titleRowY + titleRowH * 0.5f;
-        g.setColour (juce::Colour::fromRGBA (140, 134, 126, 100));
-        const float dot   = 1.8f;
-        const float dxSep = 4.0f;
-        const float dySep = 4.0f;
-        for (int col = 0; col < 2; ++col)
-            for (int row = 0; row < 3; ++row)
-                g.fillEllipse (gripX + col * dxSep,
-                               gripCY + (row - 1) * dySep - dot * 0.5f,
-                               dot, dot);
+        const float gripW = std::round (22.0f * sf);
+        const float gripH = std::round (8.0f * sf);
+        auto gripRect = juce::Rectangle<float> (gripW, gripH)
+                    .withCentre ({ bounds.getCentreX(), bounds.getY() + std::round (7.0f * sf) + gripH * 0.5f });
+
+        if (dragHandleIcon != nullptr)
+        {
+            if (auto icon = dragHandleIcon->createCopy())
+            {
+                const auto muted = juce::Colour::fromRGBA (136, 131, 124, 115);
+                icon->replaceColour (juce::Colours::black, muted);
+                icon->drawWithin (g, gripRect, juce::RectanglePlacement::centred, 1.0f);
+            }
+        }
     }
 
     // Icon area background
-    const float iconY    = std::round (30.0f * sf) + std::round (6.0f * sf);
+    const float iconY    = titleRowY + titleRowH;
     const float iconH    = std::round (72.0f * sf);   // matches resized()
     const float iconPadX = std::round (16.0f * sf);
     auto iconRect = juce::Rectangle<float> (bounds.getX() + iconPadX, bounds.getY() + iconY,
@@ -347,14 +357,14 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::resized()
     auto makeFont = [this] (float h) -> juce::Font
     {
         if (regularTypeface != nullptr)
-            return juce::Font (juce::FontOptions().withTypeface (regularTypeface).withHeight (h));
-        return juce::Font (juce::FontOptions().withName ("Segoe UI").withHeight (h));
+            return juce::Font (juce::FontOptions (regularTypeface).withHeight (h));
+        return juce::Font (juce::FontOptions().withName ("Montserrat").withHeight (h));
     };
     auto makeBoldFont = [this] (float h) -> juce::Font
     {
         if (boldTypeface != nullptr)
-            return juce::Font (juce::FontOptions().withTypeface (boldTypeface).withHeight (h));
-        return juce::Font (juce::FontOptions().withName ("Segoe UI").withHeight (h).withStyle ("Bold"));
+            return juce::Font (juce::FontOptions (boldTypeface).withHeight (h));
+        return juce::Font (juce::FontOptions().withName ("Montserrat").withHeight (h).withStyle ("Bold"));
     };
 
     title.setFont          (makeFont (juce::jmax (10.0f, 13.0f * sf)));
@@ -375,7 +385,7 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::resized()
 
     // ── Title row: bypass left, title centred, remove right ────
     const int titleRowH = juce::roundToInt (30.0f * sf);
-    const int titleRowY = juce::roundToInt (6.0f * sf);
+    const int titleRowY = juce::roundToInt (14.0f * sf);
     const int rmvSz     = juce::roundToInt (18.0f * sf);
 
     // Bypass on the LEFT
@@ -401,14 +411,14 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::resized()
     const int sliderH  = juce::roundToInt (14.0f * sf);
     const int valLblH  = hdrH;
     const int kGap     = juce::roundToInt (10.0f * sf);   // uniform gap between sections
+    const int labelYOffset = juce::roundToInt (2.0f * sf);
+    const int labelGapToControl = juce::roundToInt (2.0f * sf);
 
-    // Start placing controls after separator + icon area
-    // iconY in paint() = titleRowY + titleRowH = (6+30)*sf = 36*sf
-    int y = juce::roundToInt ((6.0f + 30.0f) * sf) + iconH + kGap;
+    int y = juce::roundToInt ((14.0f + 30.0f) * sf) + iconH + kGap;
 
     // dB knob
-    amountHeaderLabel.setBounds (padX, y, cW, hdrH);
-    y += hdrH + 4;
+    amountHeaderLabel.setBounds (padX, y + labelYOffset, cW, hdrH);
+    y += hdrH + labelGapToControl;
     amountKnob.setBounds (padX + (cW - bigKnob) / 2, y, bigKnob, bigKnob);
     y += bigKnob + kGap;
 
@@ -416,8 +426,8 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::resized()
     const bool hasHarm = harmonicType.isVisible();
     if (hasHarm)
     {
-        harmonicTypeLabel.setBounds (padX, y, cW, hdrH);
-        y += hdrH + 4;
+        harmonicTypeLabel.setBounds (padX, y + labelYOffset, cW, hdrH);
+        y += hdrH + labelGapToControl;
         harmonicType.setBounds (padX + (cW - harmKnob) / 2, y, harmKnob, harmKnob);
         y += harmKnob + kGap;
     }
@@ -428,8 +438,8 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::resized()
     }
 
     // Value/Smear knob
-    wetDryHeaderLabel.setBounds (padX, y, cW, hdrH);
-    y += hdrH + 4;
+    wetDryHeaderLabel.setBounds (padX, y + labelYOffset, cW, hdrH);
+    y += hdrH + labelGapToControl;
     wetDryKnob.setBounds (padX + (cW - smKnob) / 2, y, smKnob, smKnob);
     y += smKnob + kGap;
 
@@ -438,13 +448,16 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::resized()
     const int freqTop    = H - juce::roundToInt (10.0f * sf) - freqBlockH;
     const int freqY      = juce::jmax (y, freqTop);
 
-    auto freqHdrRow = juce::Rectangle<int> (padX, freqY, cW, hdrH);
+    auto freqHdrRow = juce::Rectangle<int> (padX, freqY + labelYOffset, cW, hdrH);
     freqStartHeader.setBounds (freqHdrRow.removeFromLeft (cW / 2));
     freqEndHeader  .setBounds (freqHdrRow);
 
-    frequencyRangeSlider.setBounds (padX, freqY + hdrH + 4, cW, sliderH);
+    frequencyRangeSlider.setBounds (padX, freqY + hdrH + labelGapToControl, cW, sliderH);
 
-    auto labRow = juce::Rectangle<int> (padX, freqY + hdrH + 4 + sliderH + 4, cW, valLblH);
+    auto labRow = juce::Rectangle<int> (padX,
+                                        freqY + hdrH + labelGapToControl + sliderH + labelGapToControl + labelYOffset,
+                                        cW,
+                                        valLblH);
     frequencyALabel.setBounds (labRow.removeFromLeft (labRow.getWidth() / 2));
     frequencyBLabel.setBounds (labRow);
 
@@ -641,16 +654,15 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::mouseExit (const juce::M
 void CognitoniBlkFxAudioProcessorEditor::CardComponent::mouseDown (const juce::MouseEvent& e)
 {
     dragStarted  = false;
-    // Allow drag only from the title row
     const float sf        = juce::jlimit (0.55f, 2.2f, (float)getHeight() / 400.0f);
-    const int   titleYEnd = juce::roundToInt ((6.0f + 30.0f) * sf);
+    const int   titleYEnd = juce::roundToInt ((14.0f + 30.0f + 18.0f) * sf);
     canStartDrag  = (currentCardType != CardSchema::CardType::empty) && (e.y <= titleYEnd);
     dragClickPos  = e.getPosition();
 }
 
 void CognitoniBlkFxAudioProcessorEditor::CardComponent::mouseDrag (const juce::MouseEvent& e)
 {
-    if (canStartDrag && !dragStarted && e.getDistanceFromDragStart() > 8)
+    if (canStartDrag && !dragStarted && e.getDistanceFromDragStart() > 5)
     {
         dragStarted  = true;
         canStartDrag = false;
@@ -664,12 +676,12 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::mouseDrag (const juce::M
         }
         if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor (this))
         {
-            // Offset the ghost so the cursor stays at the same relative position as the click
             juce::Point<int> imgOffset (-dragClickPos.x, -dragClickPos.y);
 
-            // Mark ourselves as the drag source (dimmed while dragging)
-            isDragSource = true;
-            repaint();
+            setDragSourceVisual (true);
+
+            if (onDragStarted)
+                onDragStarted (slotIndex);
 
             container->startDragging ("card:" + juce::String (slotIndex), this,
                                       juce::ScaledImage (ghost), true, &imgOffset, nullptr);
@@ -679,16 +691,19 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::mouseDrag (const juce::M
 
 void CognitoniBlkFxAudioProcessorEditor::CardComponent::mouseUp (const juce::MouseEvent&)
 {
-    // Click anywhere on empty card to open card picker
     if (currentCardType == CardSchema::CardType::empty && !dragStarted && onAddCardClicked)
-        onAddCardClicked();
+        onAddCardClicked (slotIndex);
 
-    // Clear drag-source dim
     if (isDragSource)
     {
-        isDragSource = false;
-        repaint();
+        setDragSourceVisual (false);
     }
+    if (dragStarted)
+    {
+        if (onDragEnded)
+            onDragEnded (slotIndex);
+    }
+
     dragStarted  = false;
     canStartDrag = false;
 }
@@ -704,31 +719,16 @@ bool CognitoniBlkFxAudioProcessorEditor::CardComponent::isInterestedInDragSource
 void CognitoniBlkFxAudioProcessorEditor::CardComponent::itemDragEnter (
     const juce::DragAndDropTarget::SourceDetails&)
 {
-    isDragTarget = true;
-    repaint();
 }
 
 void CognitoniBlkFxAudioProcessorEditor::CardComponent::itemDragExit (
     const juce::DragAndDropTarget::SourceDetails&)
 {
-    isDragTarget = false;
-    repaint();
 }
 
 void CognitoniBlkFxAudioProcessorEditor::CardComponent::itemDropped (
-    const juce::DragAndDropTarget::SourceDetails& details)
+    const juce::DragAndDropTarget::SourceDetails&)
 {
-    isDragTarget = false;
-    repaint();
-    const int srcSlot = details.description.toString().fromFirstOccurrenceOf (":", false, false).getIntValue();
-    // Clear drag-source state on the originating card
-    if (auto* srcCard = dynamic_cast<CardComponent*> (details.sourceComponent.get()))
-    {
-        srcCard->isDragSource = false;
-        srcCard->repaint();
-    }
-    if (onDragReorder && srcSlot != slotIndex)
-        onDragReorder (srcSlot, slotIndex);
 }
 
 //  LookAndFeel 
@@ -907,8 +907,10 @@ void CognitoniBlkFxAudioProcessorEditor::configureRangeSlider (juce::Slider& sli
 //  Helper: normalised Hz display text 
 juce::String CognitoniBlkFxAudioProcessorEditor::normalisedToHzText (double v) const
 {
+    constexpr double uiNyquistFloor = 22050.0;
     const float hz = static_cast<float> (normalisedToDtBlkHzUi (static_cast<double> (v),
-                                            static_cast<double> (audioProcessor.getCurrentNyquistHz())));
+                                            juce::jmax (uiNyquistFloor,
+                                                        static_cast<double> (audioProcessor.getCurrentNyquistHz()))));
     if (hz >= 1000.0f) return juce::String (hz / 1000.0f, 1) + " kHz";
     return juce::String (juce::roundToInt (hz)) + " Hz";
 }
@@ -924,6 +926,216 @@ void CognitoniBlkFxAudioProcessorEditor::setParameterNormalised (const juce::Str
         p->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, v));
 }
 
+int CognitoniBlkFxAudioProcessorEditor::slotIndexForScreenPoint (juce::Point<int> screenPoint) const
+{
+    const auto localPoint = getLocalPoint (nullptr, screenPoint);
+    for (int s = 0; s < CardSchema::numSlots; ++s)
+        if (slotBaseBounds[(size_t) s].contains (localPoint))
+            return s;
+
+    return -1;
+}
+
+int CognitoniBlkFxAudioProcessorEditor::slotIndexFromDragDescription (const juce::var& description) const
+{
+    const auto text = description.toString();
+    if (! text.startsWith ("card:"))
+        return -1;
+
+    const int parsed = text.fromFirstOccurrenceOf (":", false, false).getIntValue();
+    return (parsed >= 0 && parsed < CardSchema::numSlots) ? parsed : -1;
+}
+
+void CognitoniBlkFxAudioProcessorEditor::dragOperationStarted (const juce::DragAndDropTarget::SourceDetails& details)
+{
+    const int srcSlot = slotIndexFromDragDescription (details.description);
+    if (srcSlot >= 0)
+        setDragPreviewTarget (srcSlot, srcSlot);
+}
+
+void CognitoniBlkFxAudioProcessorEditor::dragOperationEnded (const juce::DragAndDropTarget::SourceDetails& details)
+{
+    for (auto& card : slotCards)
+        card.setDragSourceVisual (false);
+
+    if (dragPreviewSourceSlot < 0)
+        return;
+
+    const int srcSlot = slotIndexFromDragDescription (details.description);
+    finaliseDragReorderFromSource (srcSlot >= 0 ? srcSlot : dragPreviewSourceSlot);
+}
+
+int CognitoniBlkFxAudioProcessorEditor::determinePreviewTargetSlot (int srcSlot, juce::Point<int> localPoint) const
+{
+    if (srcSlot < 0 || srcSlot >= CardSchema::numSlots)
+        return -1;
+
+    const auto cardArea = slotBaseBounds[0].getUnion (slotBaseBounds[1]).getUnion (slotBaseBounds[2]);
+    if (! cardArea.contains (localPoint))
+        return srcSlot;
+
+    int target = srcSlot;
+
+    for (int s = srcSlot + 1; s < CardSchema::numSlots; ++s)
+    {
+        if (localPoint.x > slotBaseBounds[(size_t) s].getCentreX())
+            target = s;
+        else
+            break;
+    }
+
+    for (int s = srcSlot - 1; s >= 0; --s)
+    {
+        if (localPoint.x < slotBaseBounds[(size_t) s].getCentreX())
+            target = s;
+        else
+            break;
+    }
+
+    return target;
+}
+
+void CognitoniBlkFxAudioProcessorEditor::updateDragPreviewFromMouse()
+{
+    if (dragPreviewSourceSlot < 0 || dragPreviewSourceSlot >= CardSchema::numSlots)
+        return;
+
+    const auto screenPos = juce::Desktop::getInstance().getMainMouseSource().getScreenPosition().roundToInt();
+    const auto localPos  = getLocalPoint (nullptr, screenPos);
+    const int targetSlot = determinePreviewTargetSlot (dragPreviewSourceSlot, localPos);
+    if (targetSlot >= 0)
+        setDragPreviewTarget (dragPreviewSourceSlot, targetSlot);
+}
+
+std::array<int, CardSchema::numSlots> CognitoniBlkFxAudioProcessorEditor::buildShiftedOrder (int srcSlot, int dstSlot) const
+{
+    std::array<int, CardSchema::numSlots> order {};
+    for (int i = 0; i < CardSchema::numSlots; ++i)
+        order[(size_t) i] = i;
+
+    if (srcSlot < 0 || dstSlot < 0
+        || srcSlot >= CardSchema::numSlots || dstSlot >= CardSchema::numSlots
+        || srcSlot == dstSlot)
+        return order;
+
+    const int moved = order[(size_t) srcSlot];
+    if (srcSlot < dstSlot)
+        for (int i = srcSlot; i < dstSlot; ++i)
+            order[(size_t) i] = order[(size_t) (i + 1)];
+    else
+        for (int i = srcSlot; i > dstSlot; --i)
+            order[(size_t) i] = order[(size_t) (i - 1)];
+
+    order[(size_t) dstSlot] = moved;
+    return order;
+}
+
+void CognitoniBlkFxAudioProcessorEditor::applySlotCardBoundsOrder (const std::array<int, CardSchema::numSlots>& order,
+                                                                    bool animate)
+{
+    for (int visualSlot = 0; visualSlot < CardSchema::numSlots; ++visualSlot)
+    {
+        const int cardSlot = juce::jlimit (0, CardSchema::numSlots - 1, order[(size_t) visualSlot]);
+        const auto targetBounds = slotBaseBounds[(size_t) visualSlot];
+        if (targetBounds.isEmpty())
+            continue;
+
+        auto& card = slotCards[(size_t) cardSlot];
+        if (animate)
+            cardAnimator.animateComponent (&card, targetBounds, 1.0f, 130, false, 1.0, 1.0);
+        else
+        {
+            cardAnimator.cancelAnimation (&card, false);
+            card.setBounds (targetBounds);
+        }
+    }
+}
+
+void CognitoniBlkFxAudioProcessorEditor::setDragPreviewTarget (int srcSlot, int dstSlot)
+{
+    if (srcSlot < 0 || srcSlot >= CardSchema::numSlots)
+        return;
+
+    if (dstSlot < 0 || dstSlot >= CardSchema::numSlots)
+        dstSlot = srcSlot;
+
+    if (dragPreviewSourceSlot == srcSlot && dragPreviewTargetSlot == dstSlot)
+        return;
+
+    dragPreviewSourceSlot = srcSlot;
+    dragPreviewTargetSlot = dstSlot;
+    applySlotCardBoundsOrder (buildShiftedOrder (srcSlot, dstSlot), true);
+}
+
+void CognitoniBlkFxAudioProcessorEditor::clearDragPreview (bool animate)
+{
+    dragPreviewSourceSlot = -1;
+    dragPreviewTargetSlot = -1;
+    applySlotCardBoundsOrder (buildShiftedOrder (-1, -1), animate);
+}
+
+void CognitoniBlkFxAudioProcessorEditor::commitShiftReorder (int srcSlot, int dstSlot)
+{
+    if (srcSlot < 0 || dstSlot < 0
+        || srcSlot >= CardSchema::numSlots || dstSlot >= CardSchema::numSlots
+        || srcSlot == dstSlot)
+        return;
+
+    auto& apvts = audioProcessor.getAPVTS();
+    auto readSlot = [&] (int slot)
+    {
+        std::array<float, 7> vals {};
+        if (auto* p = apvts.getRawParameterValue (CardSchema::cardTypeParam (slot))) vals[0] = p->load();
+        if (auto* p = apvts.getRawParameterValue (CardSchema::amountParam   (slot))) vals[1] = p->load();
+        if (auto* p = apvts.getRawParameterValue (CardSchema::harmTypeParam (slot))) vals[2] = p->load();
+        if (auto* p = apvts.getRawParameterValue (CardSchema::freqAParam    (slot))) vals[3] = p->load();
+        if (auto* p = apvts.getRawParameterValue (CardSchema::freqBParam    (slot))) vals[4] = p->load();
+        if (auto* p = apvts.getRawParameterValue (CardSchema::bypassParam   (slot))) vals[5] = p->load();
+        if (auto* p = apvts.getRawParameterValue (CardSchema::wetDryParam   (slot))) vals[6] = p->load();
+        return vals;
+    };
+
+    std::array<std::array<float, 7>, CardSchema::numSlots> before {};
+    for (int slot = 0; slot < CardSchema::numSlots; ++slot)
+        before[(size_t) slot] = readSlot (slot);
+
+    const auto order = buildShiftedOrder (srcSlot, dstSlot);
+
+    auto writeSlot = [&] (int slot, const std::array<float, 7>& v)
+    {
+        setParameterNormalised (CardSchema::cardTypeParam (slot), v[0] / (float) (CardSchema::numCardTypes - 1));
+        setParameterNormalised (CardSchema::amountParam   (slot), v[1]);
+        setParameterNormalised (CardSchema::harmTypeParam (slot), v[2] / 3.0f);
+        setParameterNormalised (CardSchema::freqAParam    (slot), v[3]);
+        setParameterNormalised (CardSchema::freqBParam    (slot), v[4]);
+        setParameterNormalised (CardSchema::bypassParam   (slot), v[5]);
+        setParameterNormalised (CardSchema::wetDryParam   (slot), v[6]);
+    };
+
+    for (int slot = 0; slot < CardSchema::numSlots; ++slot)
+        writeSlot (slot, before[(size_t) order[(size_t) slot]]);
+
+    clearDragPreview (false);
+}
+
+void CognitoniBlkFxAudioProcessorEditor::finaliseDragReorderFromSource (int srcSlot)
+{
+    if (dragPreviewSourceSlot != srcSlot)
+    {
+        clearDragPreview (true);
+        return;
+    }
+
+    const auto screenPos = juce::Desktop::getInstance().getMainMouseSource().getScreenPosition().roundToInt();
+    const auto localPos  = getLocalPoint (nullptr, screenPos);
+
+    const int finalTarget = determinePreviewTargetSlot (srcSlot, localPos);
+    if (finalTarget >= 0 && finalTarget != srcSlot)
+        commitShiftReorder (srcSlot, finalTarget);
+    else
+        clearDragPreview (true);
+}
+
 //  Main editor constructor 
 CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (CognitoniBlkFxAudioProcessor& p)
     : AudioProcessorEditor (&p), audioProcessor (p)
@@ -933,6 +1145,10 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
         EmbeddedFonts::Montserrat_Regular_ttf, EmbeddedFonts::Montserrat_Regular_ttf_size);
     montserratBold = juce::Typeface::createSystemTypefaceFor (
         EmbeddedFonts::Montserrat_Bold_ttf, EmbeddedFonts::Montserrat_Bold_ttf_size);
+    if (montserratRegular == nullptr)
+        montserratRegular = montserratBold;
+    if (montserratBold == nullptr)
+        montserratBold = montserratRegular;
 
     setLookAndFeel (&lookAndFeel);
     setSize (760, 660);
@@ -942,14 +1158,14 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
 
     //  header labels 
     pluginNameLabel.setText ("blkfx", juce::dontSendNotification);
-    pluginNameLabel.setFont (juce::Font (juce::FontOptions{}.withTypeface (montserratBold).withHeight (36.0f)));
+    pluginNameLabel.setFont (makeMontserratUiFont (montserratBold, 36.0f, "Bold"));
     pluginNameLabel.setJustificationType (juce::Justification::centredLeft);
     pluginNameLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (38, 42, 50));
     addAndMakeVisible (pluginNameLabel);
 
     presetLabel.setText ("Preset:", juce::dontSendNotification);
     presetLabel.setJustificationType (juce::Justification::centredLeft);
-    presetLabel.setFont (juce::Font (juce::FontOptions().withTypeface (montserratRegular).withHeight (11.0f)));
+    presetLabel.setFont (makeMontserratUiFont (montserratRegular, 11.0f));
     presetLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (100, 96, 92));
     addAndMakeVisible (presetLabel);
 
@@ -981,7 +1197,7 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
 
     versionLabel.setButtonText ("v0.1.0");
     versionLabel.setURL (juce::URL ("https://github.com/toni-lyttinen/CognitoniBlkFx/tags"));
-    versionLabel.setFont (juce::Font (juce::FontOptions().withTypeface (montserratRegular).withHeight (16.0f)), false, juce::Justification::centred);
+    versionLabel.setFont (makeMontserratUiFont (montserratRegular, 16.0f), false, juce::Justification::centred);
     versionLabel.setColour (juce::HyperlinkButton::textColourId, juce::Colour::fromRGB (148, 144, 138));
     addAndMakeVisible (versionLabel);
 
@@ -1009,42 +1225,12 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
         card.bypassButton.addMouseListener (&card, false);
         card.removeButton.addMouseListener (&card, false);
 
-        // Whole card click opens picker
-        card.onAddCardClicked = [this, s] { showCardPickerModal (s); };
-
-        // Drag reorder: swap parameters between two slots
-        card.onDragReorder = [this] (int src, int dst)
+        card.onAddCardClicked = [this] (int clickedSlot)
         {
-            if (src < 0 || dst < 0 || src >= CardSchema::numSlots || dst >= CardSchema::numSlots || src == dst)
-                return;
-            // Read both slots' parameters
-            auto& apvts = audioProcessor.getAPVTS();
-            auto readSlot = [&] (int slot) {
-                std::array<float, 7> vals {};
-                if (auto* p = apvts.getRawParameterValue (CardSchema::cardTypeParam (slot))) vals[0] = p->load();
-                if (auto* p = apvts.getRawParameterValue (CardSchema::amountParam   (slot))) vals[1] = p->load();
-                if (auto* p = apvts.getRawParameterValue (CardSchema::harmTypeParam (slot))) vals[2] = p->load();
-                if (auto* p = apvts.getRawParameterValue (CardSchema::freqAParam    (slot))) vals[3] = p->load();
-                if (auto* p = apvts.getRawParameterValue (CardSchema::freqBParam    (slot))) vals[4] = p->load();
-                if (auto* p = apvts.getRawParameterValue (CardSchema::bypassParam   (slot))) vals[5] = p->load();
-                if (auto* p = apvts.getRawParameterValue (CardSchema::wetDryParam   (slot))) vals[6] = p->load();
-                return vals;
-            };
-            auto srcVals = readSlot (src);
-            auto dstVals = readSlot (dst);
-            // Write swapped values
-            auto writeSlot = [&] (int slot, const std::array<float,7>& v) {
-                setParameterNormalised (CardSchema::cardTypeParam (slot), v[0] / (float)(CardSchema::numCardTypes - 1));
-                setParameterNormalised (CardSchema::amountParam   (slot), v[1]);
-                setParameterNormalised (CardSchema::harmTypeParam (slot), v[2] / 3.0f);
-                setParameterNormalised (CardSchema::freqAParam    (slot), v[3]);
-                setParameterNormalised (CardSchema::freqBParam    (slot), v[4]);
-                setParameterNormalised (CardSchema::bypassParam   (slot), v[5]);
-                setParameterNormalised (CardSchema::wetDryParam   (slot), v[6]);
-            };
-            writeSlot (src, dstVals);
-            writeSlot (dst, srcVals);
+            showCardPickerModal (clickedSlot);
         };
+        card.onDragStarted = [this] (int src) { setDragPreviewTarget (src, src); };
+        card.onDragEnded = [this] (int src) { finaliseDragReorderFromSource (src); };
 
         card.removeButton.onClick  = [this, s]
         {
@@ -1074,8 +1260,8 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     inputGainKnob.setTextBoxStyle  (juce::Slider::TextBoxBelow, false, 56, 18);
     outputGainKnob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 18);
 
-    inputGainKnob.textFromValueFunction    = normalisedToDbText;
-    outputGainKnob.textFromValueFunction   = normalisedToDbText;
+    inputGainKnob.textFromValueFunction    = gainDbText;
+    outputGainKnob.textFromValueFunction   = gainDbText;
     masterWetDryKnob.textFromValueFunction = normalisedToPercentText;
 
     addAndMakeVisible (inputGainKnob);
@@ -1087,9 +1273,14 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     masterWetDryLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (170, 178, 195));
     addAndMakeVisible (masterWetDryLabel);
 
-    inputGainAttachment    = std::make_unique<SliderAttachment> (apvts, "inputGain",    inputGainKnob);
-    outputGainAttachment   = std::make_unique<SliderAttachment> (apvts, "outputGain",   outputGainKnob);
-    masterWetDryAttachment = std::make_unique<SliderAttachment> (apvts, "masterWetDry", masterWetDryKnob);
+    inputGainAttachment    = std::make_unique<SliderAttachment> (apvts, paramInputGain,    inputGainKnob);
+    outputGainAttachment   = std::make_unique<SliderAttachment> (apvts, paramOutputGain,   outputGainKnob);
+    masterWetDryAttachment = std::make_unique<SliderAttachment> (apvts, paramMasterWetDry, masterWetDryKnob);
+    inputGainKnob.textFromValueFunction    = gainDbText;
+    outputGainKnob.textFromValueFunction   = gainDbText;
+    masterWetDryKnob.textFromValueFunction = normalisedToPercentText;
+    inputGainKnob.updateText();
+    outputGainKnob.updateText();
     masterWetDryKnob.forceTextBoxUpdate();  // ensure textFromValueFunction is applied on first draw
 
     // BlackLens knob — FFT window size (ms, 5–1830, displayed as continuous ms/sec)
@@ -1110,7 +1301,11 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     addAndMakeVisible (blackLensKnob);
     addAndMakeVisible (blackLensLabel);
 
-    startTimerHz (30);
+    setResizable (true, false);
+    if (auto* constrainer = getConstrainer())
+        constrainer->setFixedAspectRatio (760.0 / 660.0);
+
+    startTimerHz (60);
 }
 
 CognitoniBlkFxAudioProcessorEditor::~CognitoniBlkFxAudioProcessorEditor()
@@ -1153,6 +1348,17 @@ void CognitoniBlkFxAudioProcessorEditor::paint (juce::Graphics& g)
         g.setColour (juce::Colour::fromRGB (58, 65, 75));
         g.drawRoundedRectangle (rPanel.reduced (0.5f), 14.0f, 1.0f);
     }
+
+    // Bottom-right resize indicator
+    {
+        auto b = getLocalBounds().toFloat().reduced (12.0f);
+        const float x2 = b.getRight();
+        const float y2 = b.getBottom();
+        g.setColour (juce::Colour::fromRGB (155, 150, 142));
+        g.drawLine (x2 - 16.0f, y2 - 2.0f, x2 - 2.0f, y2 - 16.0f, 1.3f);
+        g.drawLine (x2 - 11.0f, y2 - 2.0f, x2 - 2.0f, y2 - 11.0f, 1.2f);
+        g.drawLine (x2 - 6.0f,  y2 - 2.0f, x2 - 2.0f, y2 - 6.0f,  1.1f);
+    }
 }
 
 //  Main editor resized 
@@ -1164,18 +1370,13 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
     const int rowGap       = 6;
     const int iconSz       = 26;
 
-    const float sf = juce::jlimit (0.55f, 2.2f, (float)getHeight() / 400.0f);
-
-    // Scale fonts (Montserrat)
-    pluginNameLabel.setFont (juce::Font (juce::FontOptions().withTypeface (montserratBold)
-                             .withHeight (juce::jmax (20.0f, 36.0f * sf))));
+    // Keep header typography stable while resizing
+    pluginNameLabel.setFont (makeMontserratUiFont (montserratBold, 36.0f, "Bold"));
     pluginNameLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (38, 42, 50));
-    presetLabel.setFont (juce::Font (juce::FontOptions().withTypeface (montserratRegular)
-                         .withHeight (juce::jmax (9.0f, 11.0f * sf))));
-    versionLabel.setFont (juce::Font (juce::FontOptions().withTypeface (montserratRegular)
-                          .withHeight (juce::jmax (8.5f, 10.5f * sf))), false, juce::Justification::centred);
-    inputMeterLabel.setFont  (juce::Font (juce::FontOptions().withTypeface (montserratBold).withHeight (juce::jmax (9.0f, 11.0f * sf))));
-    outputMeterLabel.setFont (juce::Font (juce::FontOptions().withTypeface (montserratBold).withHeight (juce::jmax (9.0f, 11.0f * sf))));
+    presetLabel.setFont (makeMontserratUiFont (montserratRegular, 11.0f));
+    versionLabel.setFont (makeMontserratUiFont (montserratRegular, 10.5f), false, juce::Justification::centred);
+    inputMeterLabel.setFont  (makeMontserratUiFont (montserratBold, 11.0f, "Bold"));
+    outputMeterLabel.setFont (makeMontserratUiFont (montserratBold, 11.0f, "Bold"));
 
     auto full = getLocalBounds().reduced (margin);
 
@@ -1190,8 +1391,6 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
     auto header = full.removeFromTop (50);
     header.removeFromBottom (6);
 
-    // Issue 6: title left edge aligned with first card's left edge (full.getX())
-    // Use explicit bounds rather than removeFromLeft so the area is at the exact card X
     const int titleW = 160;
     pluginNameLabel.setBounds (full.getX(), header.getY() - 5, titleW, header.getHeight() + 10);
     header.removeFromLeft (titleW + 16);  // consume same space from header for the preset row
@@ -1211,19 +1410,22 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
 
     full.removeFromTop (6);   // gap between header and cards
 
-    // Issue 5: balance top/bottom padding. Header (50px) + gap (6px) = 56px overhead above cards.
-    // Remove 28px from bottom to equalise so each side ends up with margin + 28 px
-    full.removeFromBottom (28);
-
     // Card slots in remaining area
     const int cardGap   = 10;
     const int cardWidth = (full.getWidth() - cardGap * 2) / 3;
     for (int s = 0; s < CardSchema::numSlots; ++s)
-        slotCards[s].setBounds (full.getX() + s * (cardWidth + cardGap), full.getY(),
-                                cardWidth, full.getHeight());
+        slotBaseBounds[(size_t) s] = { full.getX() + s * (cardWidth + cardGap),
+                                       full.getY(),
+                                       cardWidth,
+                                       full.getHeight() };
+
+    if (dragPreviewSourceSlot >= 0 && dragPreviewTargetSlot >= 0)
+        applySlotCardBoundsOrder (buildShiftedOrder (dragPreviewSourceSlot, dragPreviewTargetSlot), false);
+    else
+        applySlotCardBoundsOrder (buildShiftedOrder (-1, -1), false);
 
     // Right panel internals
-    versionLabel.setBounds (rightPanel.removeFromBottom (16).reduced (4, 2));
+    versionLabel.setBounds (rightPanel.removeFromBottom (16).reduced (4, 2).translated (0, -2));
 
     auto rp = rightPanel.reduced (12, 14);
 
@@ -1258,16 +1460,17 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
     // BlackLens knob
     const int blKnobSz = juce::jmin (rp.getWidth() - 8, 52);
     const int blKnobH  = blKnobSz + 16;
-    blackLensLabel.setBounds (rp.removeFromTop (labelH));
-    rp.removeFromTop (rowGapI);
+    rp.removeFromTop (2);
+    blackLensLabel.setBounds (rp.removeFromTop (labelH).translated (0, 2));
+    rp.removeFromTop (juce::jmax (2, rowGapI - 1));
     auto blArea = rp.removeFromTop (blKnobH);
     blackLensKnob.setBounds (blArea.withSizeKeepingCentre (blKnobSz + 16, blKnobH));
-    rp.removeFromTop (4);
+    rp.removeFromTop (9);
 
     // Mix knob
     const int mixKnobSz = juce::jmin (rp.getWidth() - 8, 52);
-    masterWetDryLabel.setBounds (rp.removeFromTop (labelH));
-    rp.removeFromTop (rowGapI);
+    masterWetDryLabel.setBounds (rp.removeFromTop (labelH).translated (0, 2));
+    rp.removeFromTop (juce::jmax (2, rowGapI - 1));
     const int mixKnobH = mixKnobSz + 16;
     auto mixArea = rp.removeFromTop (mixKnobH);
     masterWetDryKnob.setBounds (mixArea.withSizeKeepingCentre (mixKnobSz + 16, mixKnobH));
@@ -1278,6 +1481,8 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
 //  Timer callback 
 void CognitoniBlkFxAudioProcessorEditor::timerCallback()
 {
+    updateDragPreviewFromMouse();
+
     // Update level meters
     inputLevelMeter.setLevel  (audioProcessor.getLastInputRms());
     outputLevelMeter.setLevel (audioProcessor.getLastOutputRms());
@@ -1492,8 +1697,8 @@ void CognitoniBlkFxAudioProcessorEditor::CardPickerOverlay::paint (juce::Graphic
     // Title "ADD CARD"
     g.setColour (juce::Colour::fromRGB (40, 44, 52));
     auto titleFont = boldTypeface != nullptr
-        ? juce::Font (juce::FontOptions{}.withTypeface (boldTypeface).withHeight (13.0f))
-        : juce::Font (juce::FontOptions{}.withName ("Segoe UI").withHeight (13.0f).withStyle ("Bold"));
+        ? juce::Font (juce::FontOptions (boldTypeface).withHeight (13.0f))
+        : juce::Font (juce::FontOptions{}.withName ("Montserrat").withHeight (13.0f).withStyle ("Bold"));
     g.setFont (titleFont);
     const float titleH = 34.0f;
     g.drawText ("ADD CARD", popupRect.withHeight (titleH), juce::Justification::centred, false);
@@ -1541,8 +1746,8 @@ void CognitoniBlkFxAudioProcessorEditor::CardPickerOverlay::paint (juce::Graphic
         // Name label (bottom section of cell)
         g.setColour (hovered ? accent.darker (0.25f) : juce::Colour::fromRGB (38, 42, 50));
         auto nameFont = boldTypeface != nullptr
-            ? juce::Font (juce::FontOptions{}.withTypeface (boldTypeface).withHeight (11.5f))
-            : juce::Font (juce::FontOptions{}.withName ("Segoe UI").withHeight (11.5f).withStyle ("SemiBold"));
+            ? juce::Font (juce::FontOptions (boldTypeface).withHeight (11.5f))
+            : juce::Font (juce::FontOptions{}.withName ("Montserrat").withHeight (11.5f).withStyle ("SemiBold"));
         g.setFont (nameFont);
         auto nameRect = r.withTrimmedTop (iconAreaH).reduced (4.0f, 2.0f);
         g.drawText (names[i], nameRect, juce::Justification::centred, false);
@@ -1601,6 +1806,9 @@ void CognitoniBlkFxAudioProcessorEditor::CardPickerOverlay::mouseUp (const juce:
 //  Card picker modal launch 
 void CognitoniBlkFxAudioProcessorEditor::showCardPickerModal (int s)
 {
+    s = juce::jlimit (0, CardSchema::numSlots - 1, s);
+    pendingCardPickerSlot = s;
+
     // Dismiss any existing overlay
     if (cardPickerOverlay != nullptr)
     {
@@ -1622,14 +1830,15 @@ void CognitoniBlkFxAudioProcessorEditor::showCardPickerModal (int s)
                                                            (getHeight() - popH) * 0.5f,
                                                            popW, popH);
 
-    cardPickerOverlay->onCardChosen = [this, s] (CardSchema::CardType chosen)
+    cardPickerOverlay->onCardChosen = [this] (CardSchema::CardType chosen)
     {
+        const int slot = juce::jlimit (0, CardSchema::numSlots - 1, pendingCardPickerSlot);
         removeChildComponent (cardPickerOverlay.get());
         cardPickerOverlay.reset();
-        setParameterNormalised (CardSchema::cardTypeParam (s),
+        setParameterNormalised (CardSchema::cardTypeParam (slot),
                                 (float)chosen / (float)(CardSchema::numCardTypes - 1));
         // Ensure newly-added card is not bypassed
-        setParameterNormalised (CardSchema::bypassParam (s), 0.0f);
+        setParameterNormalised (CardSchema::bypassParam (slot), 0.0f);
     };
 
     cardPickerOverlay->onDismiss = [this]

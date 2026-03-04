@@ -1,4 +1,4 @@
-﻿/*
+/*
   ==============================================================================
 
     CognitoniBlkFx  PluginProcessor implementation.
@@ -822,6 +822,10 @@ bool CognitoniBlkFxAudioProcessor::deletePresetByIndex (int presetIndex)
 bool CognitoniBlkFxAudioProcessor::isPresetUserDeletable (int presetIndex) const noexcept
 {
     if (presetIndex < 0 || presetIndex >= (int)presetDefinitions.size()) return false;
+
+    if (presetIndex == 0) 
+        return false;
+
     return presetDefinitions[(size_t)presetIndex].userPreset;
 }
 

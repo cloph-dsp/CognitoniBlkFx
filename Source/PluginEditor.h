@@ -1,4 +1,4 @@
-﻿/*
+/*
   ==============================================================================
     This file contains the basic framework code for a JUCE plugin editor.
   ==============================================================================
@@ -171,9 +171,9 @@ private:
 
         juce::Colour       accent { juce::Colour::fromRGB (185, 180, 172) };
 
-        // Callbacks: whole-card click to open picker, drag-reorder between slots
-        std::function<void()>        onAddCardClicked;
-        std::function<void(int,int)> onDragReorder;    // (srcSlot, dstSlot)
+        std::function<void(int)>              onAddCardClicked;
+        std::function<void(int)>              onDragStarted;
+        std::function<void(int)>              onDragEnded;
         int slotIndex = -1;
 
         static void drawAutoHarmIcon (juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour col);
@@ -181,10 +181,18 @@ private:
         static void drawSawsIcon     (juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour col);
         static void drawSmearIcon    (juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour col);
 
+        void setDragSourceVisual (bool shouldBeSource)
+        {
+            if (isDragSource == shouldBeSource)
+                return;
+
+            isDragSource = shouldBeSource;
+            repaint();
+        }
+
     private:
         CardSchema::CardType currentCardType = CardSchema::CardType::empty;
         bool isHovered    = false;  // Hover state for empty card
-        bool isDragTarget = false;  // Highlight when valid drag hovers over
         bool isDragSource = false;  // Dimmed while being dragged
         bool canStartDrag = false;  // Set in mouseDown if pointer is in title row
         bool dragStarted  = false;  // Drag initiated flag
@@ -192,6 +200,7 @@ private:
 
         juce::Typeface::Ptr regularTypeface;  // Montserrat Regular (set by parent editor)
         juce::Typeface::Ptr boldTypeface;     // Montserrat Bold    (set by parent editor)
+        std::unique_ptr<juce::Drawable> dragHandleIcon;
 
         void showFilledControls (bool show);
     };
@@ -231,11 +240,18 @@ private:
             if (drawable != nullptr)
             {
                 const float alpha    = en ? 1.0f : 0.4f;
-                const auto  iconCol  = juce::Colour::fromRGB (70, 68, 64).withAlpha (alpha);
-                auto iconBounds = bounds.reduced (7.0f).toNearestInt();
-                drawable->replaceColour (juce::Colours::black, iconCol);
-                drawable->replaceColour (juce::Colour::fromRGB (190, 198, 212), iconCol);
-                drawable->drawWithin (g, iconBounds.toFloat(), juce::RectanglePlacement::centred, alpha);
+                const auto  iconBase = isButtonDown ? juce::Colour::fromRGB (88, 84, 78)
+                                                     : juce::Colour::fromRGB (116, 111, 104);
+                const auto  iconCol  = iconBase.withAlpha (alpha);
+                const float iconInset = juce::jmax (4.0f, juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.22f);
+                auto iconBounds = bounds.reduced (iconInset).toNearestInt();
+
+                if (auto icon = drawable->createCopy())
+                {
+                    icon->replaceColour (juce::Colours::black, iconCol);
+                    icon->replaceColour (juce::Colours::white, fill.brighter (0.05f).withAlpha (alpha));
+                    icon->drawWithin (g, iconBounds.toFloat(), juce::RectanglePlacement::centred, alpha);
+                }
             }
         }
     private:
@@ -282,6 +298,18 @@ private:
     void rebuildSlotAttachments (int slotIndex);
     void showCardPickerModal (int slotIndex);
     void randomizeCards();
+    void dragOperationStarted (const juce::DragAndDropTarget::SourceDetails& details) override;
+    void dragOperationEnded   (const juce::DragAndDropTarget::SourceDetails& details) override;
+    int slotIndexForScreenPoint (juce::Point<int> screenPoint) const;
+    int slotIndexFromDragDescription (const juce::var& description) const;
+    int determinePreviewTargetSlot (int srcSlot, juce::Point<int> localPoint) const;
+    void updateDragPreviewFromMouse();
+    std::array<int, CardSchema::numSlots> buildShiftedOrder (int srcSlot, int dstSlot) const;
+    void applySlotCardBoundsOrder (const std::array<int, CardSchema::numSlots>& order, bool animate);
+    void setDragPreviewTarget (int srcSlot, int dstSlot);
+    void clearDragPreview (bool animate);
+    void commitShiftReorder (int srcSlot, int dstSlot);
+    void finaliseDragReorderFromSource (int srcSlot);
 
     CognitoniBlkFxAudioProcessor& audioProcessor;
 
@@ -293,13 +321,13 @@ private:
     IconButton      deletePresetButton{ "Delete Preset" };
     IconButton      randomizeButton   { "Randomize"     };
     juce::HyperlinkButton versionLabel;
-    // debugInfoLabel removed
 
     //  3 slot cards 
     std::array<CardComponent, CardSchema::numSlots> slotCards;
 
     //  Card picker overlay (shown modally when "+" clicked) 
     std::unique_ptr<CardPickerOverlay> cardPickerOverlay;
+    int pendingCardPickerSlot = 0;
 
     //  Right panel 
     LevelMeterComponent inputLevelMeter;
@@ -343,6 +371,11 @@ private:
     std::array<std::atomic<float>*, CardSchema::numSlots> slotFreqBParams { nullptr, nullptr, nullptr };
 
     std::array<int, CardSchema::numSlots> lastKnownCardTypes { -1, -1, -1 };
+    std::array<juce::Rectangle<int>, CardSchema::numSlots> slotBaseBounds;
+
+    juce::ComponentAnimator cardAnimator;
+    int dragPreviewSourceSlot = -1;
+    int dragPreviewTargetSlot = -1;
 
     bool updatingRangeControls = false;
     int  lastAppliedPresetSelectorId = 0;
