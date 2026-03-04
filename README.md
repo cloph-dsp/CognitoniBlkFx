@@ -1,4 +1,4 @@
-﻿**⚠️ Disclaimer: Agentic coding tools have and are being used to help create this project. ⚠️**
+﻿**Disclaimer: Agentic coding tools have and are being used to help create this project.**
 
 # BlkFx
 
@@ -45,7 +45,7 @@ flowchart TD
     end
 
     SM --> OPWR[Measure output power]
-    OPWR --> NORM[Power normalise\nsqrt in/out]
+    OPWR --> NORM[Power normalise sqrt in/out]
     NORM --> IFFT[Inverse FFT]
     IFFT --> XFADE[Crossfade into output ring]
     XFADE --> MIX[Master Wet/Dry blend]

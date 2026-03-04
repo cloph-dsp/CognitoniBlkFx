@@ -7,8 +7,8 @@
 Builds/
 JuceLibraryCode/
 
-# Local reference copy of original project (not required to build this rewrite)
-OriginalDtBlkFx/
+# Local reference
+reference/
 context.md
 
 # Binary/artifact outputs

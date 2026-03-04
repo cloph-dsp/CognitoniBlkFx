@@ -171,6 +171,7 @@ private:
         bool isDragTarget = false;  // Highlight when valid drag hovers over
         bool canStartDrag = false;  // Set in mouseDown if pointer is in title row
         bool dragStarted  = false;  // Drag initiated flag
+        juce::Point<int> dragClickPos;  // Mouse-down position within component (for ghost offset)
 
         void showFilledControls (bool show);
     };

@@ -272,6 +272,23 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::paint (juce::Graphics& g
     g.setColour (juce::Colour::fromRGB (225, 220, 214));
     g.drawLine (bounds.getX() + sepInset, sepY, bounds.getRight() - sepInset, sepY, 1.0f);
 
+    // Drag grip indicator (2 cols × 3 rows of dots) just right of bypass button
+    {
+        const float gPadX  = std::round (13.0f * sf);
+        const float gBypW  = std::round (20.0f * sf);
+        const float gripX  = bounds.getX() + gPadX + gBypW + std::round (6.0f * sf);
+        const float gripCY = bounds.getY() + titleRowY + titleRowH * 0.5f;
+        g.setColour (juce::Colour::fromRGBA (140, 134, 126, 100));
+        const float dot   = 1.8f;
+        const float dxSep = 4.0f;
+        const float dySep = 4.0f;
+        for (int col = 0; col < 2; ++col)
+            for (int row = 0; row < 3; ++row)
+                g.fillEllipse (gripX + col * dxSep,
+                               gripCY + (row - 1) * dySep - dot * 0.5f,
+                               dot, dot);
+    }
+
     // Icon area background
     const float iconY    = std::round (30.0f * sf) + std::round (6.0f * sf);
     const float iconH    = std::round (72.0f * sf);   // matches resized()
@@ -591,10 +608,10 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::mouseDown (const juce::M
 {
     dragStarted  = false;
     // Allow drag only from the title row
-    const float sf       = juce::jlimit (0.55f, 2.2f, (float)getHeight() / 400.0f);
+    const float sf        = juce::jlimit (0.55f, 2.2f, (float)getHeight() / 400.0f);
     const int   titleYEnd = juce::roundToInt ((6.0f + 30.0f) * sf);
-    canStartDrag = (currentCardType != CardSchema::CardType::empty) && (e.y <= titleYEnd);
-    juce::ignoreUnused (e);
+    canStartDrag  = (currentCardType != CardSchema::CardType::empty) && (e.y <= titleYEnd);
+    dragClickPos  = e.getPosition();
 }
 
 void CognitoniBlkFxAudioProcessorEditor::CardComponent::mouseDrag (const juce::MouseEvent& e)
@@ -612,8 +629,12 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::mouseDrag (const juce::M
             gfx.drawImageAt (snapshot, 0, 0);
         }
         if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor (this))
+        {
+            // Offset the ghost so the cursor stays at the same relative position as the click
+            juce::Point<int> imgOffset (-dragClickPos.x, -dragClickPos.y);
             container->startDragging ("card:" + juce::String (slotIndex), this,
-                                      juce::ScaledImage (ghost), true, nullptr, nullptr);
+                                      juce::ScaledImage (ghost), true, &imgOffset, nullptr);
+        }
     }
 }
 
@@ -829,7 +850,7 @@ void CognitoniBlkFxAudioProcessorEditor::configureRangeSlider (juce::Slider& sli
     slider.setRange (0.0, 1.0, 0.001);
 }
 
-//  Helper: normalised  Hz display text 
+//  Helper: normalised Hz display text 
 juce::String CognitoniBlkFxAudioProcessorEditor::normalisedToHzText (double v) const
 {
     const float hz = static_cast<float> (normalisedToDtBlkHzUi (static_cast<double> (v),
@@ -1095,6 +1116,8 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
 
     // Right dark panel (taken first so its bounds are consistent with paint())
     auto rightPanel = full.removeFromRight (sidePanelW);
+    // Trim top so the panel aligns with the preset/action buttons top
+    rightPanel = rightPanel.withTrimmedTop ((50 - 6 - iconSz) / 2);
     full.removeFromRight (sidePanelGap);
     rightPanelRect = rightPanel;
 
@@ -1134,34 +1157,33 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
 
     const int labelH  = 14;
     const int rowGapI = 4;
+    const int colW    = (rp.getWidth() - 8) / 2;
 
     // IN / OUT column headers
     auto topLabels = rp.removeFromTop (labelH);
-    rp.removeFromTop (3);
-    const int colW = (rp.getWidth() - 8) / 2;
+    rp.removeFromTop (4);
     inputMeterLabel.setBounds  (topLabels.removeFromLeft (colW + 4));
     outputMeterLabel.setBounds (topLabels);
 
-    // Gain knobs (IN above left, OUT above right)
-    const int gainKnobH = 66;
+    // Level meters — fills space above gain knobs and below-knob controls
+    const int gainKnobH    = 66;
+    const int perKnobAreaH = labelH + rowGapI + 52 + 16;          // one label+knob row
+    const int bottomKnobsH = gainKnobH + (rowGapI + 4)            // gain knobs + gap
+                             + 2 * perKnobAreaH + 4 + 24;         // blackLens + mix + pads
+    const int meterH       = rp.getHeight() - bottomKnobsH - 6;
+    auto metersArea = rp.removeFromTop (juce::jmax (30, meterH));
+    rp.removeFromTop (6);
+
+    inputLevelMeter.setBounds  (metersArea.removeFromLeft (colW + 4).reduced (3, 0));
+    outputLevelMeter.setBounds (metersArea.reduced (3, 0));
+
+    // Gain knobs (now below meters)
     auto gainRow = rp.removeFromTop (gainKnobH);
     inputGainKnob.setBounds  (gainRow.removeFromLeft (colW + 4));
     outputGainKnob.setBounds (gainRow);
     rp.removeFromTop (rowGapI + 4);
 
-    // Meters — height adjusted to leave room for blackLens + Mix knobs below
-    const int perKnobAreaH   = labelH + rowGapI + 52 + 16;   // one label+knob block
-    const int bottomKnobsH   = 2 * perKnobAreaH + 4 + 24;    // blackLens + 4gap + mix + extra pad
-    const int meterH         = rp.getHeight() - bottomKnobsH - 6;
-    auto metersArea = rp.removeFromTop (juce::jmax (30, meterH));
-    rp.removeFromTop (6);
-
-    auto inMeterArea  = metersArea.removeFromLeft (colW + 4);
-    auto outMeterArea = metersArea;
-    inputLevelMeter.setBounds  (inMeterArea.reduced  (3, 0));
-    outputLevelMeter.setBounds (outMeterArea.reduced (3, 0));
-
-    // BlackLens knob (above Mix)
+    // BlackLens knob
     const int blKnobSz = juce::jmin (rp.getWidth() - 8, 52);
     const int blKnobH  = blKnobSz + 16;
     blackLensLabel.setBounds (rp.removeFromTop (labelH));
