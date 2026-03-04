@@ -77,7 +77,7 @@ CognitoniBlkFxAudioProcessorEditor::CardComponent::CardComponent()
 {
     addAndMakeVisible (title);
     title.setJustificationType (juce::Justification::centredLeft);
-    title.setFont (juce::FontOptions().withName ("Segoe UI").withHeight (12.5f).withStyle ("SemiBold"));
+    title.setFont (juce::FontOptions().withName ("Montserrat").withHeight (12.5f).withStyle ("SemiBold"));
     title.setColour (juce::Label::textColourId, juce::Colour::fromRGB (38, 36, 33));
 
     addAndMakeVisible (bypassButton);
@@ -93,7 +93,7 @@ CognitoniBlkFxAudioProcessorEditor::CardComponent::CardComponent()
     addAndMakeVisible (amountHeaderLabel);
     amountHeaderLabel.setText ("dB", juce::dontSendNotification);
     amountHeaderLabel.setJustificationType (juce::Justification::centred);
-    amountHeaderLabel.setFont (juce::FontOptions().withName ("Segoe UI").withHeight (11.5f));
+    amountHeaderLabel.setFont (juce::FontOptions().withName ("Montserrat").withHeight (11.5f));
     amountHeaderLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (120, 115, 110));
 
     addAndMakeVisible (harmonicType);
@@ -110,7 +110,7 @@ CognitoniBlkFxAudioProcessorEditor::CardComponent::CardComponent()
     addAndMakeVisible (harmonicTypeLabel);
     harmonicTypeLabel.setText ("Type", juce::dontSendNotification);
     harmonicTypeLabel.setJustificationType (juce::Justification::centred);
-    harmonicTypeLabel.setFont (juce::FontOptions().withName ("Segoe UI").withHeight (11.5f));
+    harmonicTypeLabel.setFont (juce::FontOptions().withName ("Montserrat").withHeight (11.5f));
     harmonicTypeLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (120, 115, 110));
 
     addAndMakeVisible (wetDryKnob);
@@ -118,7 +118,7 @@ CognitoniBlkFxAudioProcessorEditor::CardComponent::CardComponent()
     addAndMakeVisible (wetDryHeaderLabel);
     wetDryHeaderLabel.setText ("Value", juce::dontSendNotification);
     wetDryHeaderLabel.setJustificationType (juce::Justification::centred);
-    wetDryHeaderLabel.setFont (juce::FontOptions().withName ("Segoe UI").withHeight (11.5f));
+    wetDryHeaderLabel.setFont (juce::FontOptions().withName ("Montserrat").withHeight (11.5f));
     wetDryHeaderLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (120, 115, 110));
 
     addAndMakeVisible (frequencyRangeSlider);
@@ -131,8 +131,8 @@ CognitoniBlkFxAudioProcessorEditor::CardComponent::CardComponent()
     freqEndHeader  .setText ("End",   juce::dontSendNotification);
     freqStartHeader.setJustificationType (juce::Justification::centredLeft);
     freqEndHeader  .setJustificationType (juce::Justification::centredRight);
-    freqStartHeader.setFont (juce::FontOptions().withName ("Segoe UI").withHeight (11.0f));
-    freqEndHeader  .setFont (juce::FontOptions().withName ("Segoe UI").withHeight (11.0f));
+    freqStartHeader.setFont (juce::FontOptions().withName ("Montserrat").withHeight (11.0f));
+    freqEndHeader  .setFont (juce::FontOptions().withName ("Montserrat").withHeight (11.0f));
     freqStartHeader.setColour (juce::Label::textColourId, juce::Colour::fromRGB (100, 98, 95));
     freqEndHeader  .setColour (juce::Label::textColourId, juce::Colour::fromRGB (100, 98, 95));
 
@@ -140,8 +140,8 @@ CognitoniBlkFxAudioProcessorEditor::CardComponent::CardComponent()
     addAndMakeVisible (frequencyBLabel);
     frequencyALabel.setJustificationType (juce::Justification::centredLeft);
     frequencyBLabel.setJustificationType (juce::Justification::centredRight);
-    frequencyALabel.setFont (juce::FontOptions().withName ("Segoe UI").withHeight (11.0f));
-    frequencyBLabel.setFont (juce::FontOptions().withName ("Segoe UI").withHeight (11.0f));
+    frequencyALabel.setFont (juce::FontOptions().withName ("Montserrat").withHeight (11.0f));
+    frequencyBLabel.setFont (juce::FontOptions().withName ("Montserrat").withHeight (11.0f));
     frequencyALabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (100, 98, 95));
     frequencyBLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (100, 98, 95));
 
@@ -257,11 +257,30 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::paint (juce::Graphics& g
     {
         g.setColour (accent.withAlpha (0.55f));
         g.drawRoundedRectangle (bounds.reduced (1.5f), r, 2.5f);
+        // Extra inner glow to show card will land here
+        g.setColour (accent.withAlpha (0.10f));
+        g.fillRoundedRectangle (bounds, r);
     }
     else
     {
         g.setColour (juce::Colour::fromRGB (215, 210, 204));
         g.drawRoundedRectangle (bounds.reduced (0.5f), r, 1.0f);
+    }
+
+    // Dim overlay while this card is being dragged (source card feedback)
+    if (isDragSource)
+    {
+        g.setColour (juce::Colour::fromRGBA (220, 215, 208, 160));
+        g.fillRoundedRectangle (bounds, r);
+        // Dashed border to show "slot will be swapped"
+        const float dash[] = { 6.0f, 4.0f };
+        juce::Path dashed;
+        dashed.addRoundedRectangle (bounds.reduced (3.0f), r - 1.0f);
+        g.setColour (juce::Colour::fromRGB (175, 170, 162));
+        juce::PathStrokeType pst (1.5f);
+        juce::Path dashResult;
+        pst.createDashedStroke (dashResult, dashed, dash, 2);
+        g.strokePath (dashResult, pst);
     }
 
     // Separator line below title
@@ -324,14 +343,29 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::resized()
     const int bypSz  = juce::roundToInt (20.0f * sf);
     const int cW     = W - 2 * padX;
 
-    title.setFont          (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax (10.0f, 13.0f * sf)));
-    amountHeaderLabel.setFont  (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax (10.0f, 11.5f * sf)));
-    wetDryHeaderLabel.setFont  (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax (10.0f, 11.5f * sf)));
-    harmonicTypeLabel.setFont  (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax (10.0f, 11.5f * sf)));
-    freqStartHeader.setFont    (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax  (9.0f, 11.0f * sf)));
-    freqEndHeader.setFont      (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax  (9.0f, 11.0f * sf)));
-    frequencyALabel.setFont    (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax  (9.0f, 11.0f * sf)));
-    frequencyBLabel.setFont    (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax  (9.0f, 11.0f * sf)));
+    // Build font helpers using embedded Montserrat (or system fallback if not yet loaded)
+    auto makeFont = [this] (float h) -> juce::Font
+    {
+        if (regularTypeface != nullptr)
+            return juce::Font (juce::FontOptions().withTypeface (regularTypeface).withHeight (h));
+        return juce::Font (juce::FontOptions().withName ("Segoe UI").withHeight (h));
+    };
+    auto makeBoldFont = [this] (float h) -> juce::Font
+    {
+        if (boldTypeface != nullptr)
+            return juce::Font (juce::FontOptions().withTypeface (boldTypeface).withHeight (h));
+        return juce::Font (juce::FontOptions().withName ("Segoe UI").withHeight (h).withStyle ("Bold"));
+    };
+
+    title.setFont          (makeFont (juce::jmax (10.0f, 13.0f * sf)));
+    amountHeaderLabel.setFont  (makeFont (juce::jmax (10.0f, 11.5f * sf)));
+    wetDryHeaderLabel.setFont  (makeFont (juce::jmax (10.0f, 11.5f * sf)));
+    harmonicTypeLabel.setFont  (makeFont (juce::jmax (10.0f, 11.5f * sf)));
+    freqStartHeader.setFont    (makeFont (juce::jmax  (9.0f, 11.0f * sf)));
+    freqEndHeader.setFont      (makeFont (juce::jmax  (9.0f, 11.0f * sf)));
+    frequencyALabel.setFont    (makeFont (juce::jmax  (9.0f, 11.0f * sf)));
+    frequencyBLabel.setFont    (makeFont (juce::jmax  (9.0f, 11.0f * sf)));
+    juce::ignoreUnused (makeBoldFont);
 
     if (currentCardType == CardSchema::CardType::empty)
     {
@@ -632,6 +666,11 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::mouseDrag (const juce::M
         {
             // Offset the ghost so the cursor stays at the same relative position as the click
             juce::Point<int> imgOffset (-dragClickPos.x, -dragClickPos.y);
+
+            // Mark ourselves as the drag source (dimmed while dragging)
+            isDragSource = true;
+            repaint();
+
             container->startDragging ("card:" + juce::String (slotIndex), this,
                                       juce::ScaledImage (ghost), true, &imgOffset, nullptr);
         }
@@ -643,6 +682,13 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::mouseUp (const juce::Mou
     // Click anywhere on empty card to open card picker
     if (currentCardType == CardSchema::CardType::empty && !dragStarted && onAddCardClicked)
         onAddCardClicked();
+
+    // Clear drag-source dim
+    if (isDragSource)
+    {
+        isDragSource = false;
+        repaint();
+    }
     dragStarted  = false;
     canStartDrag = false;
 }
@@ -675,6 +721,12 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::itemDropped (
     isDragTarget = false;
     repaint();
     const int srcSlot = details.description.toString().fromFirstOccurrenceOf (":", false, false).getIntValue();
+    // Clear drag-source state on the originating card
+    if (auto* srcCard = dynamic_cast<CardComponent*> (details.sourceComponent.get()))
+    {
+        srcCard->isDragSource = false;
+        srcCard->repaint();
+    }
     if (onDragReorder && srcSlot != slotIndex)
         onDragReorder (srcSlot, slotIndex);
 }
@@ -833,13 +885,15 @@ juce::Label* CognitoniBlkFxAudioProcessorEditor::CognitoniLookAndFeel::createSli
 {
     auto* label = juce::LookAndFeel_V4::createSliderTextBox (slider);
     label->setJustificationType (juce::Justification::centred);
+    // Subtle border on the value box
+    label->setColour (juce::Label::outlineColourId, juce::Colour::fromRGB (200, 195, 188));
     return label;
 }
 
 void CognitoniBlkFxAudioProcessorEditor::configureAmountKnob (juce::Slider& slider)
 {
     slider.setSliderStyle (juce::Slider::RotaryVerticalDrag);
-    slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 74, 20);
+    slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 74, 18);  // reduced height: closer to knob
     slider.setRange (0.0, 1.0, 0.001);
 }
 
@@ -874,6 +928,12 @@ void CognitoniBlkFxAudioProcessorEditor::setParameterNormalised (const juce::Str
 CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (CognitoniBlkFxAudioProcessor& p)
     : AudioProcessorEditor (&p), audioProcessor (p)
 {
+    // Load embedded Montserrat typefaces (once per editor instance)
+    montserratRegular = juce::Typeface::createSystemTypefaceFor (
+        EmbeddedFonts::Montserrat_Regular_ttf, EmbeddedFonts::Montserrat_Regular_ttf_size);
+    montserratBold = juce::Typeface::createSystemTypefaceFor (
+        EmbeddedFonts::Montserrat_Bold_ttf, EmbeddedFonts::Montserrat_Bold_ttf_size);
+
     setLookAndFeel (&lookAndFeel);
     setSize (760, 660);
     setResizeLimits (640, 640, 1200, 900);
@@ -882,14 +942,14 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
 
     //  header labels 
     pluginNameLabel.setText ("blkfx", juce::dontSendNotification);
-    pluginNameLabel.setFont (juce::Font (juce::FontOptions{}.withName ("Segoe UI").withHeight (36.0f).withStyle ("Bold")));
+    pluginNameLabel.setFont (juce::Font (juce::FontOptions{}.withTypeface (montserratBold).withHeight (36.0f)));
     pluginNameLabel.setJustificationType (juce::Justification::centredLeft);
     pluginNameLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (38, 42, 50));
     addAndMakeVisible (pluginNameLabel);
 
     presetLabel.setText ("Preset:", juce::dontSendNotification);
     presetLabel.setJustificationType (juce::Justification::centredLeft);
-    presetLabel.setFont (juce::FontOptions().withName ("Segoe UI").withHeight (11.0f));
+    presetLabel.setFont (juce::Font (juce::FontOptions().withTypeface (montserratRegular).withHeight (11.0f)));
     presetLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (100, 96, 92));
     addAndMakeVisible (presetLabel);
 
@@ -921,7 +981,7 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
 
     versionLabel.setButtonText ("v0.1.0");
     versionLabel.setURL (juce::URL ("https://github.com/toni-lyttinen/CognitoniBlkFx/tags"));
-    versionLabel.setFont (juce::Font (juce::FontOptions().withName ("Segoe UI").withHeight (16.0f)), false, juce::Justification::centred);
+    versionLabel.setFont (juce::Font (juce::FontOptions().withTypeface (montserratRegular).withHeight (16.0f)), false, juce::Justification::centred);
     versionLabel.setColour (juce::HyperlinkButton::textColourId, juce::Colour::fromRGB (148, 144, 138));
     addAndMakeVisible (versionLabel);
 
@@ -930,6 +990,7 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     {
         auto& card = slotCards[s];
         card.slotIndex = s;
+        card.setTypefaces (montserratRegular, montserratBold);  // pass embedded fonts
         addAndMakeVisible (card);
 
         configureAmountKnob  (card.amountKnob);
@@ -1009,6 +1070,9 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     configureAmountKnob (inputGainKnob);
     configureAmountKnob (outputGainKnob);
     configureAmountKnob (masterWetDryKnob);
+    // Narrow IN/OUT gain boxes (they don't need as much space as card knobs)
+    inputGainKnob.setTextBoxStyle  (juce::Slider::TextBoxBelow, false, 56, 18);
+    outputGainKnob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 18);
 
     inputGainKnob.textFromValueFunction    = normalisedToDbText;
     outputGainKnob.textFromValueFunction   = normalisedToDbText;
@@ -1026,6 +1090,7 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     inputGainAttachment    = std::make_unique<SliderAttachment> (apvts, "inputGain",    inputGainKnob);
     outputGainAttachment   = std::make_unique<SliderAttachment> (apvts, "outputGain",   outputGainKnob);
     masterWetDryAttachment = std::make_unique<SliderAttachment> (apvts, "masterWetDry", masterWetDryKnob);
+    masterWetDryKnob.forceTextBoxUpdate();  // ensure textFromValueFunction is applied on first draw
 
     // BlackLens knob — FFT window size (ms, 5–1830, displayed as continuous ms/sec)
     configureAmountKnob (blackLensKnob);
@@ -1101,16 +1166,16 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
 
     const float sf = juce::jlimit (0.55f, 2.2f, (float)getHeight() / 400.0f);
 
-    // Scale fonts
-    pluginNameLabel.setFont (juce::Font (juce::FontOptions().withName ("Segoe UI")
-                             .withHeight (juce::jmax (20.0f, 36.0f * sf)).withStyle ("Bold")));
+    // Scale fonts (Montserrat)
+    pluginNameLabel.setFont (juce::Font (juce::FontOptions().withTypeface (montserratBold)
+                             .withHeight (juce::jmax (20.0f, 36.0f * sf))));
     pluginNameLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (38, 42, 50));
-    presetLabel.setFont (juce::FontOptions().withName ("Segoe UI")
-                         .withHeight (juce::jmax (9.0f, 11.0f * sf)));
-    versionLabel.setFont (juce::Font (juce::FontOptions().withName ("Segoe UI")
+    presetLabel.setFont (juce::Font (juce::FontOptions().withTypeface (montserratRegular)
+                         .withHeight (juce::jmax (9.0f, 11.0f * sf))));
+    versionLabel.setFont (juce::Font (juce::FontOptions().withTypeface (montserratRegular)
                           .withHeight (juce::jmax (8.5f, 10.5f * sf))), false, juce::Justification::centred);
-    inputMeterLabel.setFont  (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax (9.0f, 11.0f * sf)).withStyle ("Bold"));
-    outputMeterLabel.setFont (juce::FontOptions().withName ("Segoe UI").withHeight (juce::jmax (9.0f, 11.0f * sf)).withStyle ("Bold"));
+    inputMeterLabel.setFont  (juce::Font (juce::FontOptions().withTypeface (montserratBold).withHeight (juce::jmax (9.0f, 11.0f * sf))));
+    outputMeterLabel.setFont (juce::Font (juce::FontOptions().withTypeface (montserratBold).withHeight (juce::jmax (9.0f, 11.0f * sf))));
 
     auto full = getLocalBounds().reduced (margin);
 
@@ -1125,8 +1190,11 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
     auto header = full.removeFromTop (50);
     header.removeFromBottom (6);
 
-    pluginNameLabel.setBounds (header.removeFromLeft (130).translated (0, -5));
-    header.removeFromLeft (16);
+    // Issue 6: title left edge aligned with first card's left edge (full.getX())
+    // Use explicit bounds rather than removeFromLeft so the area is at the exact card X
+    const int titleW = 160;
+    pluginNameLabel.setBounds (full.getX(), header.getY() - 5, titleW, header.getHeight() + 10);
+    header.removeFromLeft (titleW + 16);  // consume same space from header for the preset row
 
     auto presetRow = header;
     // Right-align: delete → randomize (right of delete) → save → selector → label
@@ -1142,6 +1210,10 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
     presetLabel.setBounds (presetRow.removeFromRight (52).withSizeKeepingCentre (52, 16));
 
     full.removeFromTop (6);   // gap between header and cards
+
+    // Issue 5: balance top/bottom padding. Header (50px) + gap (6px) = 56px overhead above cards.
+    // Remove 28px from bottom to equalise so each side ends up with margin + 28 px
+    full.removeFromBottom (28);
 
     // Card slots in remaining area
     const int cardGap   = 10;
@@ -1419,7 +1491,10 @@ void CognitoniBlkFxAudioProcessorEditor::CardPickerOverlay::paint (juce::Graphic
 
     // Title "ADD CARD"
     g.setColour (juce::Colour::fromRGB (40, 44, 52));
-    g.setFont (juce::Font (juce::FontOptions{}.withName ("Segoe UI").withHeight (13.0f).withStyle ("Bold")));
+    auto titleFont = boldTypeface != nullptr
+        ? juce::Font (juce::FontOptions{}.withTypeface (boldTypeface).withHeight (13.0f))
+        : juce::Font (juce::FontOptions{}.withName ("Segoe UI").withHeight (13.0f).withStyle ("Bold"));
+    g.setFont (titleFont);
     const float titleH = 34.0f;
     g.drawText ("ADD CARD", popupRect.withHeight (titleH), juce::Justification::centred, false);
 
@@ -1465,7 +1540,10 @@ void CognitoniBlkFxAudioProcessorEditor::CardPickerOverlay::paint (juce::Graphic
 
         // Name label (bottom section of cell)
         g.setColour (hovered ? accent.darker (0.25f) : juce::Colour::fromRGB (38, 42, 50));
-        g.setFont (juce::Font (juce::FontOptions{}.withName ("Segoe UI").withHeight (11.5f).withStyle ("SemiBold")));
+        auto nameFont = boldTypeface != nullptr
+            ? juce::Font (juce::FontOptions{}.withTypeface (boldTypeface).withHeight (11.5f))
+            : juce::Font (juce::FontOptions{}.withName ("Segoe UI").withHeight (11.5f).withStyle ("SemiBold"));
+        g.setFont (nameFont);
         auto nameRect = r.withTrimmedTop (iconAreaH).reduced (4.0f, 2.0f);
         g.drawText (names[i], nameRect, juce::Justification::centred, false);
     }
@@ -1531,6 +1609,7 @@ void CognitoniBlkFxAudioProcessorEditor::showCardPickerModal (int s)
     }
 
     cardPickerOverlay = std::make_unique<CardPickerOverlay>();
+    cardPickerOverlay->setTypefaces (montserratRegular, montserratBold);  // pass embedded fonts
 
     // Overlay covers the whole editor so clicking outside the popup dismisses it
     cardPickerOverlay->setBounds (getLocalBounds());

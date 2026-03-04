@@ -9,6 +9,7 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 #include "CardSchema.h"
+#include "Fonts/EmbeddedFonts.h"
 
 //==============================================================================
 class CognitoniBlkFxAudioProcessorEditor  : public juce::AudioProcessorEditor
@@ -99,6 +100,12 @@ private:
         void mouseUp    (const juce::MouseEvent&) override;
         void mouseDown  (const juce::MouseEvent&) override;
 
+        void setTypefaces (juce::Typeface::Ptr regular, juce::Typeface::Ptr bold)
+        {
+            regularTypeface = regular;
+            boldTypeface    = bold;
+        }
+
         std::function<void (CardSchema::CardType)> onCardChosen;
         std::function<void()>                      onDismiss;
 
@@ -106,6 +113,8 @@ private:
 
     private:
         int hoveredItem = -1;
+        juce::Typeface::Ptr regularTypeface;
+        juce::Typeface::Ptr boldTypeface;
         juce::Rectangle<float> itemRect (int idx) const;
     };
 
@@ -115,6 +124,13 @@ private:
     {
     public:
         CardComponent();
+
+        // Set embedded typefaces (called by parent editor after loading)
+        void setTypefaces (juce::Typeface::Ptr regular, juce::Typeface::Ptr bold)
+        {
+            regularTypeface = regular;
+            boldTypeface    = bold;
+        }
 
         // Set the card type and update all visual/control state accordingly
         void setCardType (CardSchema::CardType newType, const juce::String& titleText = {});
@@ -169,9 +185,13 @@ private:
         CardSchema::CardType currentCardType = CardSchema::CardType::empty;
         bool isHovered    = false;  // Hover state for empty card
         bool isDragTarget = false;  // Highlight when valid drag hovers over
+        bool isDragSource = false;  // Dimmed while being dragged
         bool canStartDrag = false;  // Set in mouseDown if pointer is in title row
         bool dragStarted  = false;  // Drag initiated flag
         juce::Point<int> dragClickPos;  // Mouse-down position within component (for ghost offset)
+
+        juce::Typeface::Ptr regularTypeface;  // Montserrat Regular (set by parent editor)
+        juce::Typeface::Ptr boldTypeface;     // Montserrat Bold    (set by parent editor)
 
         void showFilledControls (bool show);
     };
@@ -288,13 +308,17 @@ private:
     juce::Label         outputMeterLabel;
     juce::Slider        inputGainKnob;
     juce::Slider        outputGainKnob;
-    juce::Slider        masterWetDryKnob;
+    KnobSlider          masterWetDryKnob;
     juce::Label         masterWetDryLabel;
     KnobSlider          blackLensKnob;
     juce::Label         blackLensLabel;
 
     // Cached right-panel bounds (used in paint and resized for consistent alignment)
     juce::Rectangle<int> rightPanelRect;
+
+    // Embedded Montserrat typefaces (loaded once, shared across the editor)
+    juce::Typeface::Ptr montserratRegular;
+    juce::Typeface::Ptr montserratBold;
 
     CognitoniLookAndFeel lookAndFeel;
 
