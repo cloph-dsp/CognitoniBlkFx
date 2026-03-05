@@ -2,7 +2,7 @@
 
 # BlkFx
 
-<img width="759" height="690" alt="kuva" src="https://github.com/user-attachments/assets/b52b44ca-b4b9-41fc-8d1e-e887fd06e5a7" />
+<img width="761" height="679" alt="kuva" src="https://github.com/user-attachments/assets/78e1fdd1-99b6-4ceb-9049-27271d9f519c" />
 
 
 **BlkFx** is a spectral FX plugin built with JUCE, reimplementing the legendary **DtBlkFx** by Darrell Tam. It uses the same crossfade-output block processing architecture as the original, operating on overlapping FFT frames without windowing.
