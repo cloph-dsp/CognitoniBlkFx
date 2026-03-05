@@ -95,7 +95,7 @@ CognitoniBlkFxAudioProcessor::createDefaultPresetDefinitions()
 
         // -- AutoHarm preset (original DtBlkFx classic: 40dB, 30% Odd, full freq range)
         {
-            "AutoHarm",
+            "Auto Harm",
             false,
             "DtBlkFx",
             { { paramMasterWetDry, 1.0f }, { paramBlackLens, 92.2f } },
@@ -108,9 +108,25 @@ CognitoniBlkFxAudioProcessor::createDefaultPresetDefinitions()
             }
         },
 
+        // -- Glitchy Harmonics preset
+        {
+            "Glitchy Harmonics",
+            false,
+            "Cognitoni",
+            { { paramMasterWetDry, 1.0f }, { paramBlackLens, 92.2f } },
+            {
+                // Slot 0: AutoHarm, Amount 0.539, FreqA 0.339, FreqB 1.0, WetDry 0.768
+                makeSlot (0, kAutoHarm, 0.539f, 0.0f, 0.339f, 1.0f, 0.0f, 0.768f),
+                // Slot 1: Contrast, Amount 0.407, FreqA 0.0, FreqB 1.0, WetDry 1.0
+                makeSlot (1, kContrast, 0.407f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f),
+                // Slot 2: Smear, Amount 0.3, FreqA 0.0, FreqB 1.0, WetDry 0.399
+                makeSlot (2, kSmear, 0.3f, 0.0f, 0.0f, 1.0f, 0.0f, 0.399f)
+            }
+        },
+
         // -- SuperSoft preset (original DtBlkFx: Smear 0dB/100%, Contrast 50%/1dB, mid range)
         {
-            "SuperSoft",
+            "Super Soft",
             false,
             "DtBlkFx",
             { { paramMasterWetDry, 1.0f }, { paramBlackLens, 1485.0f } },
@@ -121,7 +137,9 @@ CognitoniBlkFxAudioProcessor::createDefaultPresetDefinitions()
                 makeSlot (1, kContrast, 0.75f, 0.0f, 0.38636f, 0.63068f, 0.0f, 0.61f),
                 makeSlot (2, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f)
             }
-        }
+        },
+
+        
     };
 
     return defaults;
