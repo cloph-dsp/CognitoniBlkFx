@@ -1375,8 +1375,8 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
     pluginNameLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (38, 42, 50));
     presetLabel.setFont (makeMontserratUiFont (montserratRegular, 11.0f));
     versionLabel.setFont (makeMontserratUiFont (montserratRegular, 10.5f), false, juce::Justification::centred);
-    inputMeterLabel.setFont  (makeMontserratUiFont (montserratBold, 11.0f, "Bold"));
-    outputMeterLabel.setFont (makeMontserratUiFont (montserratBold, 11.0f, "Bold"));
+    inputMeterLabel.setFont  (makeMontserratUiFont (montserratBold, 16.0f, "Bold"));
+    outputMeterLabel.setFont (makeMontserratUiFont (montserratBold, 16.0f, "Bold"));
 
     auto full = getLocalBounds().reduced (margin);
 
@@ -1429,34 +1429,36 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
 
     auto rp = rightPanel.reduced (12, 14);
 
-    const int labelH  = 14;
-    const int rowGapI = 4;
-    const int colW    = (rp.getWidth() - 8) / 2;
+    const int labelH     = 14;
+    const int rowGapI    = 4;
+    const int colW       = (rp.getWidth() - 8) / 2;
+    const int gainKnobH  = 66;
 
-    // IN / OUT column headers
-    auto topLabels = rp.removeFromTop (labelH);
-    rp.removeFromTop (4);
-    inputMeterLabel.setBounds  (topLabels.removeFromLeft (colW + 4));
-    outputMeterLabel.setBounds (topLabels);
-
-    // Level meters — fills space above gain knobs and below-knob controls
-    const int gainKnobH    = 66;
-    const int perKnobAreaH = labelH + rowGapI + 52 + 16;          // one label+knob row
-    const int bottomKnobsH = gainKnobH + (rowGapI + 4)            // gain knobs + gap
-                             + 2 * perKnobAreaH + 4 + 24;         // blackLens + mix + pads
-    const int meterH       = rp.getHeight() - bottomKnobsH - 6;
-    auto metersArea = rp.removeFromTop (juce::jmax (30, meterH));
-    rp.removeFromTop (6);
+    // Level meters
+    const int perKnobAreaH = labelH + rowGapI + 52 + 16; 
+    const int bottomKnobsH = (labelH + rowGapI + gainKnobH) 
+                             + (rowGapI + 4) 
+                             + 2 * perKnobAreaH + 4 + 24; 
+    
+    const int meterH = rp.getHeight() - bottomKnobsH - 10;
+    auto metersArea  = rp.removeFromTop (juce::jmax (30, meterH));
+    rp.removeFromTop (10); // Spacer between meters and control section
 
     inputLevelMeter.setBounds  (metersArea.removeFromLeft (colW + 4).reduced (3, 0));
     outputLevelMeter.setBounds (metersArea.reduced (3, 0));
 
-    // Gain knobs (now below meters)
+    // IN / OUT column headers
+    auto topLabels = rp.removeFromTop (labelH);
+    rp.removeFromTop (rowGapI);
+    inputMeterLabel.setBounds  (topLabels.removeFromLeft (colW + 4));
+    outputMeterLabel.setBounds (topLabels);
+
+    // Gain knobs
     auto gainRow = rp.removeFromTop (gainKnobH);
     inputGainKnob.setBounds  (gainRow.removeFromLeft (colW + 4));
     outputGainKnob.setBounds (gainRow);
+    
     rp.removeFromTop (rowGapI + 4);
-
     // BlackLens knob
     const int blKnobSz = juce::jmin (rp.getWidth() - 8, 52);
     const int blKnobH  = blKnobSz + 16;
