@@ -26,6 +26,9 @@ public:
 
     int getFftOrder() const noexcept { return currentFftOrder; }
     int getFftSize()  const noexcept { return currentFftSize; }
+    // The hop size is the number of samples between successive FFT frames.
+    // The true output latency of the OLA engine is  2*fftSize - hopSize.
+    int getHopSize()  const noexcept { return currentHopSize; }
 
 private:
     // -------------------------------------------------------------------------

@@ -84,6 +84,7 @@ CognitoniBlkFxAudioProcessor::createDefaultPresetDefinitions()
         {
             "Empty",
             false,
+            {},   // author: empty — label is hidden for Empty
             { { paramMasterWetDry, 1.0f }, { paramBlackLens, 92.2f } },
             {
                 makeSlot (0, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f),
@@ -96,6 +97,7 @@ CognitoniBlkFxAudioProcessor::createDefaultPresetDefinitions()
         {
             "AutoHarm",
             false,
+            "DtBlkFx",
             { { paramMasterWetDry, 1.0f }, { paramBlackLens, 92.2f } },
             {
                 // Slot 0: AutoHarm — 30% Odd packed value (0.325), amplitude=1.0 (max), freqA=0.245 (≈99Hz), freqB=1.0
@@ -110,6 +112,7 @@ CognitoniBlkFxAudioProcessor::createDefaultPresetDefinitions()
         {
             "SuperSoft",
             false,
+            "DtBlkFx",
             { { paramMasterWetDry, 1.0f }, { paramBlackLens, 1485.0f } },
             {
                 // Slot 0: Smear — amp=0.6 (0dB), smear=1.0 (100%), freqB=0.94886
@@ -488,7 +491,7 @@ void CognitoniBlkFxAudioProcessor::prepareToPlay (double sampleRate, int samples
                                     : FFTProcessor::defaultFftOrder;
     fftProcessor.setSettings (fftSettings);
 
-    kDryDelaySize = fftProcessor.getFftSize();
+    kDryDelaySize = 2 * fftProcessor.getFftSize() - fftProcessor.getHopSize();
     setLatencySamples (kDryDelaySize);
 
     // Initialise dry-delay ring buffers
@@ -608,7 +611,7 @@ void CognitoniBlkFxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
             fftSettings.fftOrder      = reqOrder;
             fftProcessor.setSettings (fftSettings);
 
-            kDryDelaySize = fftProcessor.getFftSize();
+            kDryDelaySize = 2 * fftProcessor.getFftSize() - fftProcessor.getHopSize();
             setLatencySamples (kDryDelaySize);
 
             dryDelayBuffers.assign ((size_t)numCh, std::vector<float> ((size_t)kDryDelaySize, 0.0f));
@@ -827,6 +830,16 @@ bool CognitoniBlkFxAudioProcessor::isPresetUserDeletable (int presetIndex) const
         return false;
 
     return presetDefinitions[(size_t)presetIndex].userPreset;
+}
+
+juce::String CognitoniBlkFxAudioProcessor::getPresetAuthor (int presetIndex) const noexcept
+{
+    if (presetIndex < 0 || presetIndex >= (int)presetDefinitions.size())
+        return {};
+    // Only show author for factory presets with a non-empty author field.
+    // User presets never have an author attribution.
+    const auto& p = presetDefinitions[(size_t)presetIndex];
+    return p.userPreset ? juce::String{} : p.author;
 }
 
 int CognitoniBlkFxAudioProcessor::getCurrentPresetIndex() const noexcept

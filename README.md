@@ -20,8 +20,8 @@ The engine processes audio in overlapping spectral frames. Each frame is written
 
 ```
 FFT size   : 4096 samples (default, adjustable via BlackLens)
-Hop size   : ~57.2 % of FFT size
-Latency    : one FFT window  (≈ 92 ms @ 44.1 kHz with default BlackLens)
+Hop size   : ~57.2 % of FFT size (~2351 samples for default 4096)
+Latency    : 2 × FFT size − hop size  (≈ 133 ms @ 44.1 kHz with default BlackLens)
 Output ring: 3 × FFT size
 ```
 
@@ -79,7 +79,7 @@ Randomises the phase (and partially the amplitude) of each spectral bin using a 
 - **Randomizer** button that fills all three card slots with random card types and random parameter values in one click
 - Input and output gain trims (±18 dB)
 - Master Wet/Dry for global dry/processed blend
-- Built-in presets from the classic DtBlkFx **AutoHarm** and **SuperSoft** presets.
+- Built-in presets from the classic DtBlkFx **AutoHarm** and **SuperSoft** presets, with author attribution ("by Darrell Tam") displayed below the selector.
 - User presets saved to `%APPDATA%\CognitoniBlkFx\presets.json` (Windows)
 - Save, delete, and randomize controls.
 

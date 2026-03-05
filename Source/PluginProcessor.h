@@ -68,6 +68,8 @@ public:
     bool deletePresetByIndex (int presetIndex);
     bool isPresetUserDeletable (int presetIndex) const noexcept;
     int getCurrentPresetIndex() const noexcept;
+    /** Returns the author string for a factory preset, or empty string for user presets. */
+    juce::String getPresetAuthor (int presetIndex) const noexcept;
     float getLastInputRms()  const noexcept;
     float getLastOutputRms() const noexcept;
     int   getLastSanitisedSamples() const noexcept;
@@ -104,6 +106,7 @@ private:
     {
         juce::String name;
         bool userPreset = false;
+        juce::String author;   // displayed as "by <author>" under the preset selector; empty hides the label
         std::vector<PresetParameterValue> globalValues;
         std::vector<SlotPresetValues>     slots;
     };

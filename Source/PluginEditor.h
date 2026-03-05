@@ -317,6 +317,7 @@ private:
     juce::Label     pluginNameLabel;
     juce::Label     presetLabel;
     juce::ComboBox  presetSelector;
+    juce::Label     presetAuthorLabel;   // "by <author>" shown below selector for factory presets
     IconButton      savePresetButton  { "Save Preset"   };
     IconButton      deletePresetButton{ "Delete Preset" };
     IconButton      randomizeButton   { "Randomize"     };

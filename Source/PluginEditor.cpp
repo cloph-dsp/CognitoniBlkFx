@@ -277,19 +277,13 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::paint (juce::Graphics& g
     g.setColour (juce::Colour::fromRGB (215, 210, 204));
     g.drawRoundedRectangle (bounds.reduced (0.5f), r, 1.0f);
 
-    // Dim overlay while this card is being dragged (source card feedback)
+    // Colored accent border while this card is being dragged (source card feedback)
     if (isDragSource)
     {
-        g.setColour (juce::Colour::fromRGBA (220, 215, 208, 160));
+        g.setColour (juce::Colour::fromRGBA (220, 215, 208, 100));
         g.fillRoundedRectangle (bounds, r);
-        const float dash[] = { 6.0f, 4.0f };
-        juce::Path dashed;
-        dashed.addRoundedRectangle (bounds.reduced (3.0f), r - 1.0f);
-        g.setColour (juce::Colour::fromRGB (175, 170, 162));
-        juce::PathStrokeType pst (1.5f);
-        juce::Path dashResult;
-        pst.createDashedStroke (dashResult, dashed, dash, 2);
-        g.strokePath (dashResult, pst);
+        g.setColour (accent.withAlpha (0.85f));
+        g.drawRoundedRectangle (bounds.reduced (1.5f), r - 0.5f, 2.5f);
     }
 
     // Separator line below title
@@ -666,25 +660,18 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::mouseDrag (const juce::M
     {
         dragStarted  = true;
         canStartDrag = false;
-        // Take a snapshot of the card as the drag image
-        auto snapshot = juce::Component::createComponentSnapshot (getLocalBounds());
-        juce::Image ghost (juce::Image::ARGB, snapshot.getWidth(), snapshot.getHeight(), true);
-        {
-            juce::Graphics gfx (ghost);
-            gfx.setOpacity (0.62f);
-            gfx.drawImageAt (snapshot, 0, 0);
-        }
+
         if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor (this))
         {
-            juce::Point<int> imgOffset (-dragClickPos.x, -dragClickPos.y);
-
             setDragSourceVisual (true);
 
             if (onDragStarted)
                 onDragStarted (slotIndex);
 
+            // Pass an empty ScaledImage so no ghost follows the cursor —
+            // visual feedback is given by the accent border on the source card.
             container->startDragging ("card:" + juce::String (slotIndex), this,
-                                      juce::ScaledImage (ghost), true, &imgOffset, nullptr);
+                                      juce::ScaledImage{}, true, nullptr, nullptr);
         }
     }
 }
@@ -970,8 +957,10 @@ int CognitoniBlkFxAudioProcessorEditor::determinePreviewTargetSlot (int srcSlot,
     if (srcSlot < 0 || srcSlot >= CardSchema::numSlots)
         return -1;
 
+    // Only care about horizontal (X) position — ignore Y so dragging above or below
+    // the card row still tracks correctly.
     const auto cardArea = slotBaseBounds[0].getUnion (slotBaseBounds[1]).getUnion (slotBaseBounds[2]);
-    if (! cardArea.contains (localPoint))
+    if (localPoint.x < cardArea.getX() || localPoint.x > cardArea.getRight())
         return srcSlot;
 
     int target = srcSlot;
@@ -1165,7 +1154,7 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
 
     presetLabel.setText ("Preset:", juce::dontSendNotification);
     presetLabel.setJustificationType (juce::Justification::centredLeft);
-    presetLabel.setFont (makeMontserratUiFont (montserratRegular, 11.0f));
+    presetLabel.setFont (makeMontserratUiFont (montserratRegular, 16.0f));
     presetLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (100, 96, 92));
     addAndMakeVisible (presetLabel);
 
@@ -1180,8 +1169,19 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
             lastAppliedPresetSelectorId = audioProcessor.getCurrentPresetIndex() + 1;
             presetSelector.setSelectedId (lastAppliedPresetSelectorId, juce::dontSendNotification);
             deletePresetButton.setEnabled (audioProcessor.isPresetUserDeletable (audioProcessor.getCurrentPresetIndex()));
+
+            // Update author attribution under the selector
+            const auto author = audioProcessor.getPresetAuthor (audioProcessor.getCurrentPresetIndex());
+            presetAuthorLabel.setText (author.isEmpty() ? juce::String{} : "by " + author,
+                                       juce::dontSendNotification);
         }
     };
+
+    // Preset author label — small muted text shown below selector for factory presets only
+    presetAuthorLabel.setJustificationType (juce::Justification::centred);
+    presetAuthorLabel.setFont (makeMontserratUiFont (montserratRegular, 10.0f));
+    presetAuthorLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (152, 147, 140));
+    addAndMakeVisible (presetAuthorLabel);
 
     savePresetButton.setSvgIcon   (EmbeddedIcons::saveSvg);
     deletePresetButton.setSvgIcon (EmbeddedIcons::deleteSvg);
@@ -1194,6 +1194,14 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     savePresetButton.onClick   = [this] { showSavePresetDialog(); };
     deletePresetButton.onClick = [this] { showDeletePresetDialog(); };
     randomizeButton.onClick    = [this] { randomizeCards(); };
+
+    // Set correct initial enabled-state: delete is only allowed for user presets
+    deletePresetButton.setEnabled (audioProcessor.isPresetUserDeletable (audioProcessor.getCurrentPresetIndex()));
+
+    // Allow editor's mouseDown to receive clicks on the preset combo box so we can
+    // reset the selected ID before the popup opens — this ensures onChange always
+    // fires even when the user re-selects the preset that is already current.
+    presetSelector.addMouseListener (this, false);
 
     versionLabel.setButtonText ("v0.1.0");
     versionLabel.setURL (juce::URL ("https://github.com/toni-lyttinen/CognitoniBlkFx/tags"));
@@ -1315,9 +1323,15 @@ CognitoniBlkFxAudioProcessorEditor::~CognitoniBlkFxAudioProcessorEditor()
 }
 
 //  Main editor paint 
-void CognitoniBlkFxAudioProcessorEditor::mouseDown (const juce::MouseEvent& /*e*/)
+void CognitoniBlkFxAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
 {
     // Card picker overlay handles its own dismiss via full-screen backdrop mouseDown
+
+    // Reset the combo box selection to 0 just before its popup opens.  This forces
+    // onChange to fire even when the user clicks the preset that is already current,
+    // because the selectedId will go  0→N  (not N→N, which would be a no-op).
+    if (e.eventComponent == &presetSelector)
+        presetSelector.setSelectedId (0, juce::dontSendNotification);
 }
 
 void CognitoniBlkFxAudioProcessorEditor::paint (juce::Graphics& g)
@@ -1373,7 +1387,7 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
     // Keep header typography stable while resizing
     pluginNameLabel.setFont (makeMontserratUiFont (montserratBold, 36.0f, "Bold"));
     pluginNameLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (38, 42, 50));
-    presetLabel.setFont (makeMontserratUiFont (montserratRegular, 11.0f));
+    presetLabel.setFont (makeMontserratUiFont (montserratRegular, 12.0f));
     versionLabel.setFont (makeMontserratUiFont (montserratRegular, 10.5f), false, juce::Justification::centred);
     inputMeterLabel.setFont  (makeMontserratUiFont (montserratBold, 16.0f, "Bold"));
     outputMeterLabel.setFont (makeMontserratUiFont (montserratBold, 16.0f, "Bold"));
@@ -1388,8 +1402,9 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
     rightPanelRect = rightPanel;
 
     // Header row (in main card area only, NOT over right panel)
-    auto header = full.removeFromTop (50);
-    header.removeFromBottom (6);
+    auto header = full.removeFromTop (50);  // 14px taller than before to fit author label below selector
+    auto authorRow = header.removeFromBottom (0); // author label lives here
+    header.removeFromBottom (6);  // gap between author row and controls row
 
     const int titleW = 160;
     pluginNameLabel.setBounds (full.getX(), header.getY() - 5, titleW, header.getHeight() + 10);
@@ -1407,6 +1422,12 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
     auto selectorArea = presetRow.removeFromRight (desiredBoxWidth);
     presetSelector.setBounds (selectorArea.withSizeKeepingCentre (desiredBoxWidth, 24));
     presetLabel.setBounds (presetRow.removeFromRight (52).withSizeKeepingCentre (52, 16));
+
+    // Author label directly below the preset selector
+    {
+        const auto sb = presetSelector.getBounds();
+        presetAuthorLabel.setBounds (sb.getX() - 48, authorRow.getY() - 12, sb.getWidth(), 12); // offset to align better with selector
+    }
 
     full.removeFromTop (6);   // gap between header and cards
 
@@ -1582,6 +1603,13 @@ void CognitoniBlkFxAudioProcessorEditor::refreshPresetSelectorItems()
     lastAppliedPresetSelectorId = audioProcessor.getCurrentPresetIndex() + 1;
     presetSelector.setSelectedId (lastAppliedPresetSelectorId,
                                   juce::dontSendNotification);
+
+    // Sync the author attribution label
+    const auto author = audioProcessor.getPresetAuthor (audioProcessor.getCurrentPresetIndex());
+    presetAuthorLabel.setText (author.isEmpty() ? juce::String{} : "by " + author,
+                               juce::dontSendNotification);
+
+    deletePresetButton.setEnabled (audioProcessor.isPresetUserDeletable (audioProcessor.getCurrentPresetIndex()));
 }
 
 //  Slot attachment management 
