@@ -727,7 +727,7 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniLookAndFeel::CognitoniLookAndFeel()
     setColour (juce::Slider::textBoxTextColourId,       juce::Colour::fromRGB (45,  50,  58));
     setColour (juce::Slider::textBoxOutlineColourId,    juce::Colour::fromRGB (200, 195, 188));
     setColour (juce::Slider::textBoxBackgroundColourId, juce::Colour::fromRGB (248, 244, 238));
-    setColour (juce::ComboBox::backgroundColourId,      juce::Colour::fromRGB (248, 244, 238));
+    setColour (juce::ComboBox::backgroundColourId,      juce::Colour::fromRGB (251, 249, 246));
     setColour (juce::ComboBox::textColourId,            juce::Colour::fromRGB (38,  42,  50));
     setColour (juce::ComboBox::outlineColourId,         juce::Colour::fromRGB (195, 190, 182));
     setColour (juce::PopupMenu::backgroundColourId,     juce::Colour::fromRGB (248, 244, 238));
@@ -866,6 +866,30 @@ void CognitoniBlkFxAudioProcessorEditor::CognitoniLookAndFeel::drawToggleButton 
     auto inner = bounds.reduced (3.5f);
     g.setColour (active ? accentCol : juce::Colour::fromRGB (205, 200, 195));
     g.fillEllipse (inner);
+}
+
+void CognitoniBlkFxAudioProcessorEditor::CognitoniLookAndFeel::positionComboBoxText (juce::ComboBox& box, juce::Label& label)
+{
+    // Prevent JUCE from dimming the label when selectedId == 0 (textWhenNothingSelected).
+    // JUCE's default positionComboBoxText sets alpha to ~0.5 for placeholder text, making
+    // the control look disabled. Force full text colour here.
+    label.setColour (juce::Label::textColourId, box.findColour (juce::ComboBox::textColourId));
+    juce::LookAndFeel_V4::positionComboBoxText (box, label);
+}
+
+void CognitoniBlkFxAudioProcessorEditor::CognitoniLookAndFeel::drawComboBoxTextWhenNothingSelected (
+    juce::Graphics& g, juce::ComboBox& box, juce::Label& label)
+{
+    // Override to draw at full opacity instead of the default 0.5 alpha.
+    // This ensures preset names displayed via setTextWhenNothingSelected() look normal.
+    g.setColour (findColour (juce::ComboBox::textColourId));
+    auto font = label.getLookAndFeel().getLabelFont (label);
+    g.setFont (font);
+    auto textArea = getLabelBorderSize (label).subtractedFrom (label.getLocalBounds());
+    g.drawFittedText (box.getTextWhenNothingSelected(), textArea,
+                      label.getJustificationType(),
+                      juce::jmax (1, (int)((float)textArea.getHeight() / font.getHeight())),
+                      label.getMinimumHorizontalScale());
 }
 
 juce::Label* CognitoniBlkFxAudioProcessorEditor::CognitoniLookAndFeel::createSliderTextBox (juce::Slider& slider)
@@ -1166,19 +1190,26 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
         if (selected > 0)
         {
             audioProcessor.applyPresetByIndex (selected - 1);
-            lastAppliedPresetSelectorId = audioProcessor.getCurrentPresetIndex() + 1;
-            presetSelector.setSelectedId (lastAppliedPresetSelectorId, juce::dontSendNotification);
-            deletePresetButton.setEnabled (audioProcessor.isPresetUserDeletable (audioProcessor.getCurrentPresetIndex()));
+            const int currentIdx = audioProcessor.getCurrentPresetIndex();
+            lastAppliedPresetSelectorId = currentIdx + 1;
 
-            // Update author attribution under the selector
-            const auto author = audioProcessor.getPresetAuthor (audioProcessor.getCurrentPresetIndex());
+            // Always clear the real selectedId after loading so that re-clicking
+            // the same preset in the popup goes from id=0 to id=N and fires onChange.
+            // Display the current name via setTextWhenNothingSelected instead.
+            const auto names = audioProcessor.getPresetNames();
+            presetSelector.setTextWhenNothingSelected (
+                currentIdx >= 0 && currentIdx < names.size() ? names[currentIdx] : "");
+            presetSelector.setSelectedId (0, juce::dontSendNotification);
+
+            deletePresetButton.setEnabled (audioProcessor.isPresetUserDeletable (currentIdx));
+            const auto author = audioProcessor.getPresetAuthor (currentIdx);
             presetAuthorLabel.setText (author.isEmpty() ? juce::String{} : "by " + author,
                                        juce::dontSendNotification);
         }
     };
 
     // Preset author label — small muted text shown below selector for factory presets only
-    presetAuthorLabel.setJustificationType (juce::Justification::centred);
+    presetAuthorLabel.setJustificationType (juce::Justification::centredLeft);
     presetAuthorLabel.setFont (makeMontserratUiFont (montserratRegular, 10.0f));
     presetAuthorLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (152, 147, 140));
     addAndMakeVisible (presetAuthorLabel);
@@ -1198,12 +1229,7 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     // Set correct initial enabled-state: delete is only allowed for user presets
     deletePresetButton.setEnabled (audioProcessor.isPresetUserDeletable (audioProcessor.getCurrentPresetIndex()));
 
-    // Allow editor's mouseDown to receive clicks on the preset combo box so we can
-    // reset the selected ID before the popup opens — this ensures onChange always
-    // fires even when the user re-selects the preset that is already current.
-    presetSelector.addMouseListener (this, false);
-
-    versionLabel.setButtonText ("v0.1.0");
+    versionLabel.setButtonText ("v0.2.0-alpha");
     versionLabel.setURL (juce::URL ("https://github.com/toni-lyttinen/CognitoniBlkFx/tags"));
     versionLabel.setFont (makeMontserratUiFont (montserratRegular, 16.0f), false, juce::Justification::centred);
     versionLabel.setColour (juce::HyperlinkButton::textColourId, juce::Colour::fromRGB (148, 144, 138));
@@ -1323,15 +1349,9 @@ CognitoniBlkFxAudioProcessorEditor::~CognitoniBlkFxAudioProcessorEditor()
 }
 
 //  Main editor paint 
-void CognitoniBlkFxAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
+void CognitoniBlkFxAudioProcessorEditor::mouseDown (const juce::MouseEvent& /*e*/)
 {
     // Card picker overlay handles its own dismiss via full-screen backdrop mouseDown
-
-    // Reset the combo box selection to 0 just before its popup opens.  This forces
-    // onChange to fire even when the user clicks the preset that is already current,
-    // because the selectedId will go  0→N  (not N→N, which would be a no-op).
-    if (e.eventComponent == &presetSelector)
-        presetSelector.setSelectedId (0, juce::dontSendNotification);
 }
 
 void CognitoniBlkFxAudioProcessorEditor::paint (juce::Graphics& g)
@@ -1426,7 +1446,7 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
     // Author label directly below the preset selector
     {
         const auto sb = presetSelector.getBounds();
-        presetAuthorLabel.setBounds (sb.getX() - 48, authorRow.getY() - 12, sb.getWidth(), 12); // offset to align better with selector
+        presetAuthorLabel.setBounds (sb.getX(), authorRow.getY() - 12, sb.getWidth(), 12);
     }
 
     full.removeFromTop (6);   // gap between header and cards
@@ -1532,14 +1552,22 @@ void CognitoniBlkFxAudioProcessorEditor::timerCallback()
     syncRangeSlidersFromParams();
     refreshFrequencyLabels();
 
-    // Sync preset selector
+    // Sync preset selector.  Compare against lastAppliedPresetSelectorId because
+    // getSelectedId() is always 0 (we use setTextWhenNothingSelected for display).
     if (! presetSelector.isPopupActive())
     {
         const int procPreset = audioProcessor.getCurrentPresetIndex();
-        if (procPreset + 1 != presetSelector.getSelectedId())
+        if (procPreset + 1 != lastAppliedPresetSelectorId)
         {
-            presetSelector.setSelectedId (procPreset + 1, juce::dontSendNotification);
             lastAppliedPresetSelectorId = procPreset + 1;
+            const auto names = audioProcessor.getPresetNames();
+            presetSelector.setTextWhenNothingSelected (
+                procPreset >= 0 && procPreset < names.size() ? names[procPreset] : "");
+            presetSelector.setSelectedId (0, juce::dontSendNotification);
+            deletePresetButton.setEnabled (audioProcessor.isPresetUserDeletable (procPreset));
+            const auto author = audioProcessor.getPresetAuthor (procPreset);
+            presetAuthorLabel.setText (author.isEmpty() ? juce::String{} : "by " + author,
+                                       juce::dontSendNotification);
         }
     }
 }
@@ -1600,16 +1628,22 @@ void CognitoniBlkFxAudioProcessorEditor::refreshPresetSelectorItems()
     const auto names = audioProcessor.getPresetNames();
     for (int i = 0; i < names.size(); ++i)
         presetSelector.addItem (names[i], i + 1);
-    lastAppliedPresetSelectorId = audioProcessor.getCurrentPresetIndex() + 1;
-    presetSelector.setSelectedId (lastAppliedPresetSelectorId,
-                                  juce::dontSendNotification);
 
-    // Sync the author attribution label
-    const auto author = audioProcessor.getPresetAuthor (audioProcessor.getCurrentPresetIndex());
+    const int currentIdx = audioProcessor.getCurrentPresetIndex();
+    lastAppliedPresetSelectorId = currentIdx + 1;
+
+    // Never set a real selectedId.  The displayed name is shown as placeholder text
+    // via setTextWhenNothingSelected so that selectedId stays 0.  This means any
+    // click in the popup goes from 0->N and always fires onChange.
+    presetSelector.setTextWhenNothingSelected (
+        currentIdx >= 0 && currentIdx < names.size() ? names[currentIdx] : "");
+    presetSelector.setSelectedId (0, juce::dontSendNotification);
+
+    const auto author = audioProcessor.getPresetAuthor (currentIdx);
     presetAuthorLabel.setText (author.isEmpty() ? juce::String{} : "by " + author,
                                juce::dontSendNotification);
 
-    deletePresetButton.setEnabled (audioProcessor.isPresetUserDeletable (audioProcessor.getCurrentPresetIndex()));
+    deletePresetButton.setEnabled (audioProcessor.isPresetUserDeletable (currentIdx));
 }
 
 //  Slot attachment management 
@@ -1651,7 +1685,7 @@ void CognitoniBlkFxAudioProcessorEditor::rebuildSlotAttachments (int s)
             card.amountKnob.setDoubleClickReturnValue (true, 0.6);
             card.wetDryHeaderLabel.setText ("Type", juce::dontSendNotification);
             card.wetDryKnob.textFromValueFunction = autoHarmValueText;
-            card.wetDryKnob.setDoubleClickReturnValue (true, 0.325);
+            card.wetDryKnob.setDoubleClickReturnValue (true, 0.5);  // 0 % Even
             break;
 
         case CardSchema::CardType::contrast:
@@ -1865,10 +1899,70 @@ void CognitoniBlkFxAudioProcessorEditor::showCardPickerModal (int s)
         const int slot = juce::jlimit (0, CardSchema::numSlots - 1, pendingCardPickerSlot);
         removeChildComponent (cardPickerOverlay.get());
         cardPickerOverlay.reset();
-        setParameterNormalised (CardSchema::cardTypeParam (slot),
-                                (float)chosen / (float)(CardSchema::numCardTypes - 1));
-        // Ensure newly-added card is not bypassed
-        setParameterNormalised (CardSchema::bypassParam (slot), 0.0f);
+
+        // Determine per-card-type defaults.
+        // For AutoHarm / Contrast / Saws the attachments are swapped in rebuildSlotAttachments
+        // (amountKnob ↔ wetDryParam, wetDryKnob ↔ amountParam), so we set the PROCESSOR
+        // parameter names directly:
+        //   amountParam = card-specific "Value" knob source
+        //   wetDryParam = amplitude (dB) knob source
+        float amountDefault = 0.6f;  // 0 dB amplitude (used by Smear directly)
+        float wetDryDefault = 0.0f;  // 0 % smear / 0 % value
+        switch (chosen)
+        {
+            case CardSchema::CardType::autoHarm:
+                amountDefault = 0.5f;  // 0 % Even (neutral AutoHarm starting point)
+                wetDryDefault = 0.6f;  // 0 dB amplitude
+                break;
+            case CardSchema::CardType::contrast:
+                amountDefault = 0.5f;  // 0 % contrast (no boost/cut)
+                wetDryDefault = 0.6f;  // 0 dB amplitude
+                break;
+            case CardSchema::CardType::saws:
+                amountDefault = 0.0f;  // 0 % Scale
+                wetDryDefault = 0.6f;  // 0 dB amplitude
+                break;
+            case CardSchema::CardType::smear:
+                amountDefault = 0.6f;  // 0 dB amplitude
+                wetDryDefault = 0.0f;  // 0 % smear
+                break;
+            default: break;
+        }
+
+        // Build the full set of slot parameter IDs and their target values.
+        const juce::String paramIds[] = {
+            CardSchema::cardTypeParam (slot),
+            CardSchema::amountParam   (slot),
+            CardSchema::wetDryParam   (slot),
+            CardSchema::harmTypeParam (slot),
+            CardSchema::freqAParam    (slot),
+            CardSchema::freqBParam    (slot),
+            CardSchema::bypassParam   (slot)
+        };
+        const float paramValues[] = {
+            (float)chosen / (float)(CardSchema::numCardTypes - 1),
+            amountDefault,
+            wetDryDefault,
+            0.0f,   // harmType: default
+            0.0f,   // freqA: full range start
+            1.0f,   // freqB: full range end
+            0.0f    // bypass: not bypassed
+        };
+        constexpr int kNumParams = 7;
+
+        // Group all gestures together so the host sees this as one atomic action
+        // and ctrl+z undoes the entire card-add in one step.
+        auto& apvts = audioProcessor.getAPVTS();
+        juce::AudioProcessorParameter* params[kNumParams] = {};
+        int count = 0;
+        for (int i = 0; i < kNumParams; ++i)
+            if (auto* p = apvts.getParameter (paramIds[i]))
+                params[count++] = p;
+
+        for (int i = 0; i < count; ++i) params[i]->beginChangeGesture();
+        for (int i = 0; i < count; ++i)
+            params[i]->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, paramValues[i]));
+        for (int i = 0; i < count; ++i) params[i]->endChangeGesture();
     };
 
     cardPickerOverlay->onDismiss = [this]
@@ -1886,7 +1980,7 @@ void CognitoniBlkFxAudioProcessorEditor::randomizeCards()
     std::random_device rd;
     std::mt19937 rng (rd());
 
-    // Randomly decide how many slots get a card (13)
+    // Randomly decide how many slots get a card (1–3)
     std::uniform_int_distribution<int> countDist (1, CardSchema::numSlots);
     const int numToFill = countDist (rng);
 
@@ -1897,24 +1991,42 @@ void CognitoniBlkFxAudioProcessorEditor::randomizeCards()
     std::uniform_int_distribution<int> typeDist (1, CardSchema::numCardTypes - 1);   // 1..4
     std::uniform_real_distribution<float> valDist (0.2f, 0.85f);
 
+    // Collect all param changes into a flat list so they can be grouped as one
+    // atomic host action (begin-all → change-all → end-all).
+    std::vector<juce::String> paramIds;
+    std::vector<float>        paramValues;
+    paramIds  .reserve (CardSchema::numSlots * 4);
+    paramValues.reserve (CardSchema::numSlots * 4);
+
     for (int i = 0; i < CardSchema::numSlots; ++i)
     {
         const int slot = order[i];
         if (i < numToFill)
         {
             const float typeNorm = (float)typeDist (rng) / (float)(CardSchema::numCardTypes - 1);
-            setParameterNormalised (CardSchema::cardTypeParam (slot), typeNorm);
-            setParameterNormalised (CardSchema::amountParam   (slot), valDist (rng));
-            setParameterNormalised (CardSchema::wetDryParam   (slot), valDist (rng));
-            // Ensure randomized cards are not bypassed
-            setParameterNormalised (CardSchema::bypassParam   (slot), 0.0f);
+            paramIds.push_back (CardSchema::cardTypeParam (slot));  paramValues.push_back (typeNorm);
+            paramIds.push_back (CardSchema::amountParam   (slot));  paramValues.push_back (valDist (rng));
+            paramIds.push_back (CardSchema::wetDryParam   (slot));  paramValues.push_back (valDist (rng));
+            paramIds.push_back (CardSchema::bypassParam   (slot));  paramValues.push_back (0.0f);
         }
         else
         {
-            // Clear this slot
-            setParameterNormalised (CardSchema::cardTypeParam (slot), 0.0f);
+            paramIds.push_back (CardSchema::cardTypeParam (slot));  paramValues.push_back (0.0f);
         }
     }
+
+    // Apply all changes grouped so the host records them as one undoable action.
+    auto& apvts = audioProcessor.getAPVTS();
+    std::vector<juce::AudioProcessorParameter*> params;
+    params.reserve (paramIds.size());
+    for (const auto& id : paramIds)
+        if (auto* p = apvts.getParameter (id))
+            params.push_back (p);
+
+    for (auto* p : params) p->beginChangeGesture();
+    for (size_t i = 0; i < params.size(); ++i)
+        params[i]->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, paramValues[i]));
+    for (auto* p : params) p->endChangeGesture();
 }
 
 //  Preset dialogs 

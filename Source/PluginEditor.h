@@ -279,6 +279,10 @@ private:
         void drawToggleButton (juce::Graphics&, juce::ToggleButton&,
                    bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override;
 
+        void positionComboBoxText (juce::ComboBox&, juce::Label&) override;
+
+        void drawComboBoxTextWhenNothingSelected (juce::Graphics&, juce::ComboBox&, juce::Label&) override;
+
         juce::Label* createSliderTextBox (juce::Slider&) override;
     };
 
