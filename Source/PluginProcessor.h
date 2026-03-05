@@ -76,6 +76,33 @@ public:
     int   getLastInputChannels()  const noexcept;
     int   getLastOutputChannels() const noexcept;
 
+    //==============================================================================
+    /** A pending normalised parameter change to be applied on the audio thread. */
+    struct PendingParamChange
+    {
+        juce::String paramId;
+        float normValue = 0.0f;
+    };
+
+    /** Queue a batch of normalised [0,1] parameter changes to be applied on the
+        next processBlock call (audio thread).
+
+        Because these writes happen on the audio thread, the VST3 wrapper's
+        paramChanged() takes the non-message-thread path and skips performEdit(),
+        so the host (e.g. Ableton) does NOT create a per-param undo entry. The
+        entire batch therefore becomes a single undoable moment.
+
+        JUCE's ParameterAttachment already defers its slider update to the message
+        thread via triggerAsyncUpdate(), so UI components remain thread-safe.
+
+        @param changes            Normalised {paramId, value} pairs.
+        @param forceCardRebuild   Pass true when slot card types are changing.
+        @param presetIndexToStore Pass >= 0 to update currentPresetIndex atomically.
+    */
+    void queueParameterChanges (std::vector<PendingParamChange> changes,
+                                bool forceCardRebuild   = false,
+                                int  presetIndexToStore = -1);
+
 private:
     // Per-slot runtime parameter pointers
     struct SlotRuntimeParameters
@@ -143,6 +170,18 @@ private:
     // Track the cardType value last used to build each slot's card so we
     // only reallocate when the type actually changes.
     std::array<int, CardSchema::numSlots> lastBuiltSlotTypes { -1, -1, -1 };
+
+    // Pending parameter changes queue ─────────────────────────────────────────
+    // Changes are enqueued on the message thread and drained on the audio thread
+    // so the host sees no per-param performEdit() calls (= no N-step undo).
+    juce::CriticalSection           pendingParamsLock;
+    std::vector<PendingParamChange> pendingParams;
+    std::atomic<bool>               hasPendingParams            { false };
+    std::atomic<bool>               forceCardRebuildWhenDrained { false };
+    std::atomic<int>                pendingPresetIndexToStore   { -1 };
+    // Flag set in prepareToPlay(); guards the construction-time path in
+    // applyPresetByIndex() that bypasses the queue (no host is attached yet).
+    bool                            processorInitialized        { false };
 
     // Dry-signal delay compensation:
     // Delay the dry reference by the current FFT window size so wet/dry are

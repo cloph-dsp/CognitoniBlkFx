@@ -505,6 +505,10 @@ void CognitoniBlkFxAudioProcessor::prepareToPlay (double sampleRate, int samples
     }
 
     pushParameterSnapshotToCards();
+
+    // Mark the processor as fully initialised so applyPresetByIndex() uses the
+    // queue path instead of direct setValueNotifyingHost() calls.
+    processorInitialized = true;
 }
 
 void CognitoniBlkFxAudioProcessor::releaseResources() { fftProcessor.reset(); }
@@ -549,6 +553,31 @@ void CognitoniBlkFxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         const int to   = juce::jlimit (from, bufCh, totalOut);
         for (int ch = from; ch < to; ++ch)
             buffer.clear (ch, 0, buffer.getNumSamples());
+    }
+
+    // Drain pending parameter changes (enqueued on the message thread, applied
+    // here on the audio thread so the VST3 wrapper's paramChanged() takes the
+    // non-message-thread path and skips performEdit() — meaning the host records
+    // this entire batch as one undoable event, not N individual ones).
+    if (hasPendingParams.load (std::memory_order_acquire))
+    {
+        std::vector<PendingParamChange> localChanges;
+        bool doForceRebuild = false;
+        int  newPresetIdx   = -1;
+        {
+            const juce::ScopedLock sl (pendingParamsLock);
+            std::swap (localChanges, pendingParams);
+            doForceRebuild = forceCardRebuildWhenDrained.exchange (false, std::memory_order_relaxed);
+            newPresetIdx   = pendingPresetIndexToStore .exchange (-1,    std::memory_order_relaxed);
+            hasPendingParams.store (false, std::memory_order_release);
+        }
+        for (auto& c : localChanges)
+            if (auto* p = apvts.getParameter (c.paramId))
+                p->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, c.normValue));
+        if (doForceRebuild)
+            lastBuiltSlotTypes = { -1, -1, -1 };
+        if (newPresetIdx >= 0)
+            currentPresetIndex.store (newPresetIdx, std::memory_order_relaxed);
     }
 
     // Input gain
@@ -716,6 +745,24 @@ void CognitoniBlkFxAudioProcessor::applyMasterWetDryMix (juce::AudioBuffer<float
 }
 
 //==============================================================================
+//  queueParameterChanges
+//==============================================================================
+void CognitoniBlkFxAudioProcessor::queueParameterChanges (std::vector<PendingParamChange> changes,
+                                                           bool forceCardRebuild,
+                                                           int  presetIndexToStore)
+{
+    const juce::ScopedLock sl (pendingParamsLock);
+    pendingParams.insert (pendingParams.end(),
+                          std::make_move_iterator (changes.begin()),
+                          std::make_move_iterator (changes.end()));
+    if (forceCardRebuild)
+        forceCardRebuildWhenDrained.store (true, std::memory_order_relaxed);
+    if (presetIndexToStore >= 0)
+        pendingPresetIndexToStore.store (presetIndexToStore, std::memory_order_relaxed);
+    hasPendingParams.store (true, std::memory_order_release);
+}
+
+//==============================================================================
 //  setParameterToPlainValue
 //==============================================================================
 void CognitoniBlkFxAudioProcessor::setParameterToPlainValue (const juce::String& parameterId,
@@ -723,10 +770,10 @@ void CognitoniBlkFxAudioProcessor::setParameterToPlainValue (const juce::String&
 {
     if (auto* p = apvts.getParameter (parameterId))
     {
+        float norm = plainValue;
         if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
-            p->setValueNotifyingHost (rp->convertTo0to1 (plainValue));
-        else
-            p->setValueNotifyingHost (plainValue);
+            norm = rp->convertTo0to1 (plainValue);
+        p->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, norm));
     }
 }
 
@@ -741,30 +788,45 @@ void CognitoniBlkFxAudioProcessor::applyPresetByIndex (int presetIndex)
     const int clamped = juce::jlimit (0, (int)presets.size() - 1, presetIndex);
     const auto& preset = presets[(size_t)clamped];
 
-    auto beginGesture = [this] (const juce::String& id) {
-        if (auto* p = apvts.getParameter (id)) p->beginChangeGesture();
+    if (! processorInitialized)
+    {
+        // Construction-time path: no host is connected yet so setValueNotifyingHost
+        // creates no undo entries.  Apply the preset synchronously.
+        for (const auto& gv : preset.globalValues)
+            setParameterToPlainValue (gv.parameterId, gv.plainValue);
+        for (const auto& sv : preset.slots)
+            for (const auto& v : sv.values)
+                setParameterToPlainValue (v.parameterId, v.plainValue);
+        currentPresetIndex.store (clamped, std::memory_order_relaxed);
+        lastBuiltSlotTypes = { -1, -1, -1 };
+        rebuildCardRack();
+        pushParameterSnapshotToCards();
+        return;
+    }
+
+    // Post-init path: queue all changes so they are applied on the audio thread.
+    // The VST3 wrapper's paramChanged() skips performEdit() for audio-thread calls,
+    // so the entire preset load becomes ONE undoable host event.
+    std::vector<PendingParamChange> changes;
+    changes.reserve (preset.globalValues.size() +
+                     [&]{ size_t n = 0; for (auto& sv : preset.slots) n += sv.values.size(); return n; }());
+
+    auto addChange = [&] (const juce::String& id, float plainValue)
+    {
+        float norm = plainValue;
+        if (auto* p = apvts.getParameter (id))
+            if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
+                norm = rp->convertTo0to1 (plainValue);
+        changes.push_back ({ id, juce::jlimit (0.0f, 1.0f, norm) });
     };
-    auto endGesture = [this] (const juce::String& id) {
-        if (auto* p = apvts.getParameter (id)) p->endChangeGesture();
-    };
 
-    for (const auto& gv : preset.globalValues)      beginGesture (gv.parameterId);
+    for (const auto& gv : preset.globalValues)
+        addChange (gv.parameterId, gv.plainValue);
     for (const auto& sv : preset.slots)
-        for (const auto& v : sv.values)              beginGesture (v.parameterId);
+        for (const auto& v : sv.values)
+            addChange (v.parameterId, v.plainValue);
 
-    for (const auto& gv : preset.globalValues)      setParameterToPlainValue (gv.parameterId, gv.plainValue);
-    for (const auto& sv : preset.slots)
-        for (const auto& v : sv.values)              setParameterToPlainValue (v.parameterId, v.plainValue);
-
-    for (const auto& gv : preset.globalValues)      endGesture (gv.parameterId);
-    for (const auto& sv : preset.slots)
-        for (const auto& v : sv.values)              endGesture (v.parameterId);
-
-    currentPresetIndex.store (clamped, std::memory_order_relaxed);
-
-    lastBuiltSlotTypes = { -1, -1, -1 };
-    rebuildCardRack();
-    pushParameterSnapshotToCards();
+    queueParameterChanges (std::move (changes), /*forceCardRebuild=*/true, /*presetIndex=*/clamped);
 }
 
 //==============================================================================

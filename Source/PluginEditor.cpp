@@ -1336,8 +1336,8 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     addAndMakeVisible (blackLensLabel);
 
     setResizable (true, false);
-    if (auto* constrainer = getConstrainer())
-        constrainer->setFixedAspectRatio (760.0 / 660.0);
+    if (auto* ar = getConstrainer())
+        ar->setFixedAspectRatio (760.0 / 660.0);
 
     startTimerHz (60);
 }
@@ -1950,19 +1950,13 @@ void CognitoniBlkFxAudioProcessorEditor::showCardPickerModal (int s)
         };
         constexpr int kNumParams = 7;
 
-        // Group all gestures together so the host sees this as one atomic action
-        // and ctrl+z undoes the entire card-add in one step.
-        auto& apvts = audioProcessor.getAPVTS();
-        juce::AudioProcessorParameter* params[kNumParams] = {};
-        int count = 0;
+        // Queue all 7 param changes as one audio-thread batch so the host
+        // records the entire card-add as a single undoable event.
+        std::vector<CognitoniBlkFxAudioProcessor::PendingParamChange> changes;
+        changes.reserve (kNumParams);
         for (int i = 0; i < kNumParams; ++i)
-            if (auto* p = apvts.getParameter (paramIds[i]))
-                params[count++] = p;
-
-        for (int i = 0; i < count; ++i) params[i]->beginChangeGesture();
-        for (int i = 0; i < count; ++i)
-            params[i]->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, paramValues[i]));
-        for (int i = 0; i < count; ++i) params[i]->endChangeGesture();
+            changes.push_back ({ paramIds[i], juce::jlimit (0.0f, 1.0f, paramValues[i]) });
+        audioProcessor.queueParameterChanges (std::move (changes), /*forceCardRebuild=*/true);
     };
 
     cardPickerOverlay->onDismiss = [this]
@@ -2015,18 +2009,13 @@ void CognitoniBlkFxAudioProcessorEditor::randomizeCards()
         }
     }
 
-    // Apply all changes grouped so the host records them as one undoable action.
-    auto& apvts = audioProcessor.getAPVTS();
-    std::vector<juce::AudioProcessorParameter*> params;
-    params.reserve (paramIds.size());
-    for (const auto& id : paramIds)
-        if (auto* p = apvts.getParameter (id))
-            params.push_back (p);
-
-    for (auto* p : params) p->beginChangeGesture();
-    for (size_t i = 0; i < params.size(); ++i)
-        params[i]->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, paramValues[i]));
-    for (auto* p : params) p->endChangeGesture();
+    // Queue all changes as one audio-thread batch so the host records the
+    // entire randomize as a single undoable event.
+    std::vector<CognitoniBlkFxAudioProcessor::PendingParamChange> changes;
+    changes.reserve (paramIds.size());
+    for (size_t i = 0; i < paramIds.size(); ++i)
+        changes.push_back ({ paramIds[i], juce::jlimit (0.0f, 1.0f, paramValues[i]) });
+    audioProcessor.queueParameterChanges (std::move (changes), /*forceCardRebuild=*/true);
 }
 
 //  Preset dialogs 
