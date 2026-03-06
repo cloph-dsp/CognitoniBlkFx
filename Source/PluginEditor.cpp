@@ -1,4 +1,4 @@
-/*
+﻿/*
   ==============================================================================
     CognitoniBlkFx -- PluginEditor.cpp
   ==============================================================================
@@ -1317,15 +1317,32 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     outputGainKnob.updateText();
     masterWetDryKnob.forceTextBoxUpdate();  // ensure textFromValueFunction is applied on first draw
 
-    // BlackLens knob — FFT window size (ms, 5–1830, displayed as continuous ms/sec)
+    // BlackLens knob — FFT window size (order 8–16, snaps to 9 discrete steps)
+    // Displayed as ms / s to the user, computed from order and the live sample rate.
+    // Max order 16 = 65536 samples ≈ 1486 ms (nearest power-of-2 to DtBlkFx's 1829 ms ceiling).
     configureAmountKnob (blackLensKnob);
-    blackLensKnob.setDoubleClickReturnValue (true, 92.2);
+    blackLensKnob.setDoubleClickReturnValue (true, 12.0);   // order 12 ≈ 92.9 ms @ 44.1 kHz
     blackLensAttachment = std::make_unique<SliderAttachment> (apvts, paramBlackLens, blackLensKnob);
-    blackLensKnob.textFromValueFunction = [](double valueMs) -> juce::String
+    blackLensKnob.textFromValueFunction = [this](double orderVal) -> juce::String
     {
-        if (valueMs >= 1000.0)
-            return juce::String (valueMs / 1000.0, 2) + " sec";
-        return juce::String (valueMs, 1) + " ms";
+        const int order = juce::jlimit (8, 16, juce::roundToInt ((float) orderVal));
+        double sr = audioProcessor.getSampleRate();
+        if (sr <= 0.0) sr = 44100.0;
+        const double ms = static_cast<double> (1 << order) / sr * 1000.0;
+        if (ms >= 1000.0)
+            return juce::String (ms / 1000.0, 2) + " s";
+        return juce::String (ms, 1) + " ms";
+    };
+    blackLensKnob.valueFromTextFunction = [this](const juce::String& text) -> double
+    {
+        // User types a value in ms (or s with "s" suffix); find nearest valid FFT order.
+        double sr = audioProcessor.getSampleRate();
+        if (sr <= 0.0) sr = 44100.0;
+        const bool isSec = text.containsIgnoreCase ("s") && !text.containsIgnoreCase ("ms");
+        const double ms  = isSec ? text.getDoubleValue() * 1000.0 : text.getDoubleValue();
+        const int samples = juce::jmax (256, juce::roundToInt (static_cast<float> (ms * sr / 1000.0)));
+        const int order   = juce::roundToInt (std::log2f (static_cast<float> (samples)));
+        return static_cast<double> (juce::jlimit (8, 16, order));
     };
     blackLensKnob.forceTextBoxUpdate();
 

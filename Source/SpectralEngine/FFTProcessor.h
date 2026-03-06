@@ -13,7 +13,7 @@ public:
     struct Settings
     {
         float overlapAmount = 0.499f;
-        int   fftOrder      = defaultFftOrder;  // 9–13 (512–8192)
+        int   fftOrder      = defaultFftOrder;  // 8–16 (256–65536)
     };
 
     FFTProcessor();

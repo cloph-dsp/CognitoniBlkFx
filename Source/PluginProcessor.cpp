@@ -85,7 +85,7 @@ CognitoniBlkFxAudioProcessor::createDefaultPresetDefinitions()
             "Empty",
             false,
             {},   // author: empty — label is hidden for Empty
-            { { paramMasterWetDry, 1.0f }, { paramBlackLens, 92.2f } },
+            { { paramMasterWetDry, 1.0f }, { paramBlackLens, 12.0f } },
             {
                 makeSlot (0, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f),
                 makeSlot (1, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f),
@@ -98,7 +98,7 @@ CognitoniBlkFxAudioProcessor::createDefaultPresetDefinitions()
             "Auto Harm",
             false,
             "DtBlkFx",
-            { { paramMasterWetDry, 1.0f }, { paramBlackLens, 92.2f } },
+            { { paramMasterWetDry, 1.0f }, { paramBlackLens, 12.0f } },
             {
                 // Slot 0: AutoHarm — 30% Odd packed value (0.325), amplitude=1.0 (max), freqA=0.245 (≈99Hz), freqB=1.0
                 makeSlot (0, kAutoHarm, 0.325f, 0.0f, 0.245f, 1.0f, 0.0f, 1.0f),
@@ -113,7 +113,7 @@ CognitoniBlkFxAudioProcessor::createDefaultPresetDefinitions()
             "Glitchy Harmonics",
             false,
             "Cognitoni",
-            { { paramMasterWetDry, 1.0f }, { paramBlackLens, 92.2f } },
+            { { paramMasterWetDry, 1.0f }, { paramBlackLens, 12.0f } },
             {
                 // Slot 0: AutoHarm, Amount 0.539, FreqA 0.339, FreqB 1.0, WetDry 0.768
                 makeSlot (0, kAutoHarm, 0.539f, 0.0f, 0.339f, 1.0f, 0.0f, 0.768f),
@@ -129,7 +129,7 @@ CognitoniBlkFxAudioProcessor::createDefaultPresetDefinitions()
             "Super Soft",
             false,
             "DtBlkFx",
-            { { paramMasterWetDry, 1.0f }, { paramBlackLens, 1485.0f } },
+            { { paramMasterWetDry, 1.0f }, { paramBlackLens, 16.0f } },
             {
                 // Slot 0: Smear — amp=0.6 (0dB), smear=1.0 (100%), freqB=0.94886
                 makeSlot (0, kSmear, 0.6f, 0.0f, 0.0f, 0.94886f, 0.0f, 1.0f),
@@ -205,12 +205,17 @@ CognitoniBlkFxAudioProcessor::createParameterLayout()
         juce::ParameterID { paramOutputGain, 1 }, "Output Gain",
         juce::NormalisableRange<float> (-18.0f, 18.0f, 0.1f), 0.0f));
 
-    // BlackLens: FFT window size stored as milliseconds (5–1830 ms)
-    // The processor converts ms → nearest power-of-2 FFT order (8–17).
-    // Skew 0.228 places 92.2 ms at the visual knob centre.
+    // BlackLens: FFT window size stored as FFT order (8–16, integer steps).
+    // Order N = 2^N samples.  Stored directly so the host parameter has no
+    // threshold ambiguity and the knob snaps to exactly 9 discrete values.
+    // Default order 12 ≈ 92.9 ms @ 44.1 kHz.  Max order 16 = 65536 samples
+    // ≈ 1486 ms — nearest power-of-2 to the original DtBlkFx ceiling (80640
+    // samples = 1829 ms).  Non-power-of-2 sizes are not supported by
+    // juce::dsp::FFT, so intermediate snaps cannot be added without switching
+    // the FFT library.
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { paramBlackLens, 1 }, "BlackLens",
-        juce::NormalisableRange<float> (5.0f, 1830.0f, 0.0f, 0.228f), 92.2f));
+        juce::NormalisableRange<float> (8.0f, 16.0f, 1.0f), 12.0f));
 
     for (int s = 0; s < CardSchema::numSlots; ++s)
     {
@@ -260,11 +265,10 @@ CognitoniBlkFxAudioProcessor::createParameterLayout()
 //  Runtime parameter binding
 //==============================================================================
 
-static int msToFftOrder (float ms, double sampleRate) noexcept
+// BlackLens parameter stores the FFT order directly; just clamp and round.
+static int fftOrderFromParam (float storedOrder) noexcept
 {
-    const int samples = juce::jmax (32, static_cast<int> (ms * sampleRate / 1000.0));
-    const int order   = juce::roundToInt (std::log2 (static_cast<float> (samples)));
-    return juce::jlimit (8, 17, order);
+    return juce::jlimit (8, 16, juce::roundToInt (storedOrder));
 }
 
 void CognitoniBlkFxAudioProcessor::bindRuntimeParameters()
@@ -505,7 +509,7 @@ void CognitoniBlkFxAudioProcessor::prepareToPlay (double sampleRate, int samples
     FFTProcessor::Settings fftSettings;
     fftSettings.overlapAmount = 0.499f;
     fftSettings.fftOrder      = (blackLensParam != nullptr)
-                                    ? msToFftOrder (blackLensParam->load (std::memory_order_relaxed), sampleRate)
+                                    ? fftOrderFromParam (blackLensParam->load (std::memory_order_relaxed))
                                     : FFTProcessor::defaultFftOrder;
     fftProcessor.setSettings (fftSettings);
 
@@ -647,7 +651,7 @@ void CognitoniBlkFxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     // Detect blackLens (FFT window) changes and rebuild if needed
     if (blackLensParam != nullptr)
     {
-        const int reqOrder = msToFftOrder (blackLensParam->load (std::memory_order_relaxed), getSampleRate());
+        const int reqOrder = fftOrderFromParam (blackLensParam->load (std::memory_order_relaxed));
         if (reqOrder != fftProcessor.getFftOrder())
         {
             const int numCh = (int)dryDelayBuffers.size();
@@ -859,7 +863,7 @@ bool CognitoniBlkFxAudioProcessor::saveCurrentPresetAs (const juce::String& pres
     newPreset.userPreset = true;
     newPreset.globalValues = {
         { paramMasterWetDry, loadParamOr (masterWetDryParam, 1.0f) },
-        { paramBlackLens,    loadParamOr (blackLensParam,    92.2f) }
+        { paramBlackLens,    loadParamOr (blackLensParam,    12.0f) }
     };
 
     for (int s = 0; s < CardSchema::numSlots; ++s)
