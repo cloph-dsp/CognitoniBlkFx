@@ -40,10 +40,10 @@ flowchart TD
         C0[Card Slot 1]
         C1[Card Slot 2]
         C2[Card Slot 3]    
-        C1 --> C2 --> C3 -->
+        C1 --> C2 --> C3
     end
 
-    SM --> OPWR[Measure output power]
+    C3 --> OPWR[Measure output power]
     OPWR --> NORM[Power normalise sqrt in/out]
     NORM --> IFFT[Inverse FFT]
     IFFT --> XFADE[Crossfade into output ring]
