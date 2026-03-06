@@ -37,11 +37,10 @@ flowchart TD
     IPWR --> AH
 
     subgraph FX [Effects Chain]
-        AH[AutoHarm harmonic amplifier]
-        CT[Contrast spectral shaper]
-        SW[Saws harmonic profile]
-        SM[Smear phase randomiser]
-        AH --> CT --> SW --> SM
+        C0[Card Slot 1]
+        C1[Card Slot 2]
+        C2[Card Slot 3]    
+        C1 --> C2 --> C3 -->
     end
 
     SM --> OPWR[Measure output power]
