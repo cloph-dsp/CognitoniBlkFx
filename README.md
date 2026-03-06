@@ -34,12 +34,12 @@ flowchart TD
     IBUF -->|every hop| FFT[Forward FFT]
     FFT --> BINS[2049 complex bins]
     BINS --> IPWR[Measure input power]
-    IPWR --> C0
+    IPWR --> C1
 
     subgraph FX [Effects Chain]
-        C0[Card Slot 1]
-        C1[Card Slot 2]
-        C2[Card Slot 3]    
+        C1[Card Slot 1]
+        C2[Card Slot 2]
+        C3[Card Slot 3]    
         C1 --> C2 --> C3
     end
 
