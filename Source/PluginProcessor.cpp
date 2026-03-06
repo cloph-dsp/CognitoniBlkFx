@@ -630,17 +630,24 @@ void CognitoniBlkFxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
             for (int ch = 0; ch < bufCh; ++ch)
                 buffer.applyGain (ch, 0, buffer.getNumSamples(), ogLin);
 
-        double energy = 0.0;
         const int ch2 = juce::jmin (bufCh, dryBuffer.getNumChannels());
         const int s2  = juce::jmin (buffer.getNumSamples(), dryBuffer.getNumSamples());
+        double inputEnergy = 0.0, outputEnergy = 0.0;
         for (int ch = 0; ch < ch2; ++ch)
         {
-            const auto* d = buffer.getReadPointer (ch);
-            for (int i = 0; i < s2; ++i) { const double v = (double)d[i]; energy += v * v; }
+            const auto* in  = dryBuffer.getReadPointer (ch);
+            const auto* out = buffer.getReadPointer (ch);
+            for (int i = 0; i < s2; ++i)
+            {
+                const double inV  = (double)in[i];
+                const double outV = (double)out[i];
+                inputEnergy  += inV  * inV;
+                outputEnergy += outV * outV;
+            }
         }
-        const float rms = (float)std::sqrt (energy / (double)juce::jmax (1, ch2 * s2));
-        lastInputRms.store (rms, std::memory_order_relaxed);
-        lastOutputRms.store (rms, std::memory_order_relaxed);
+        const double denom = (double)juce::jmax (1, ch2 * s2);
+        lastInputRms.store  ((float)std::sqrt (inputEnergy  / denom), std::memory_order_relaxed);
+        lastOutputRms.store ((float)std::sqrt (outputEnergy / denom), std::memory_order_relaxed);
         lastSanitisedSamples.store (0, std::memory_order_relaxed);
         return;
     }
