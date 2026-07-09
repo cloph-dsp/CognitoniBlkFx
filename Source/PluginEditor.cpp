@@ -1728,8 +1728,20 @@ void CognitoniBlkFxAudioProcessorEditor::rebuildSlotAttachments (int s)
             card.amountHeaderLabel.setText ("dB", juce::dontSendNotification);
             card.amountKnob.textFromValueFunction = normalisedToDbText;
             card.amountKnob.setDoubleClickReturnValue (true, 0.6);
-            card.wetDryKnob.textFromValueFunction = normalisedToPercentText;
+            card.wetDryHeaderLabel.setText ("Phase", juce::dontSendNotification);
+            card.wetDryKnob.textFromValueFunction = [] (double v)
+                { return juce::String (juce::roundToInt (v * 100.0)) + "%"; };
             card.wetDryKnob.setDoubleClickReturnValue (true, 0.0);
+            // harmType → stereo spread selector (Mono/Wide/Full)
+            slotAttachments[s].harmType = std::make_unique<SliderAttachment> (
+                apvts, CardSchema::harmTypeParam (s), card.harmonicType);
+            card.harmonicType.textFromValueFunction = [] (double v) -> juce::String
+            {
+                const int i = juce::roundToInt (juce::jlimit (0.0, 3.0, v));
+                const char* names[] = { "Mono", "Wide", "Full", "Full" };
+                return names[static_cast<size_t> (i > 3 ? 3 : i)];
+            };
+            card.harmonicTypeLabel.setText ("Spread", juce::dontSendNotification);
             break;
     }
 

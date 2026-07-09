@@ -45,6 +45,7 @@ void SmearCard::setSettings (const Settings& s)
     setCommonSettings (s.common);
     ampParam_.store    (juce::jlimit (0.0f, 1.0f, s.ampParam),    std::memory_order_relaxed);
     smearAmount_.store (juce::jlimit (0.0f, 1.0f, s.smearAmount), std::memory_order_relaxed);
+    spreadMode_.store  (juce::jlimit (0, 2, s.spreadMode),       std::memory_order_relaxed);
     frequencyAHz_.store (juce::jmax (0.0f, s.searchBandHz.minHz), std::memory_order_relaxed);
     frequencyBHz_.store (juce::jmax (0.0f, s.searchBandHz.maxHz), std::memory_order_relaxed);
 }
@@ -55,6 +56,7 @@ SmearCard::Settings SmearCard::getSettingsSnapshot() const
     snap.common        = getCommonSettingsSnapshot();
     snap.ampParam      = ampParam_.load    (std::memory_order_relaxed);
     snap.smearAmount   = smearAmount_.load (std::memory_order_relaxed);
+    snap.spreadMode    = spreadMode_.load  (std::memory_order_relaxed);
     snap.searchBandHz.minHz = frequencyAHz_.load (std::memory_order_relaxed);
     snap.searchBandHz.maxHz = frequencyBHz_.load (std::memory_order_relaxed);
     return snap;
@@ -110,6 +112,19 @@ void SmearCard::process (juce::dsp::Complex<float>* bins, int numBins)
         frameStartPrbs_ = prbs_;
 
     uint32_t randState = frameStartPrbs_;
+
+    // Stereo spread: differentiate PRBS sequence per channel for L/R decorrelation.
+    // In mono mode (0) all channels share the same seed, preserving the stereo image.
+    // Wide (1) uses a moderate offset, Full (2) maximum decorrelation.
+    const int spreadMode = snap.spreadMode;
+    if (spreadMode > 0 && channelCallCount_ > 0)
+    {
+        uint32_t seed = frameStartPrbs_;
+        const int numSteps = channelCallCount_ * (spreadMode == 1 ? 9973 : 31337);
+        for (int i = 0; i < numSteps; ++i)
+            seed = prbs32 (seed);
+        randState = seed;
+    }
 
     for (int bin = 1; bin < numBins; ++bin)
     {

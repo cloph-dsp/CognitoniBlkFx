@@ -411,6 +411,7 @@ void CognitoniBlkFxAudioProcessor::pushParameterSnapshotToCards()
             settings.common.wetDry      = 1.0f;   // SmearCard doesn't use an extra wet/dry mix
             settings.ampParam           = amount;  // dB knob 0..1 → amp multiplier
             settings.smearAmount        = wetDry;  // Value knob 0..1 → phase scramble intensity
+            settings.spreadMode         = juce::jlimit (0, 2, harmInt);  // harmType → stereo spread mode
             settings.searchBandHz.minHz = freqAHz;
             settings.searchBandHz.maxHz = freqBHz;
             smearC->setSettings (settings);

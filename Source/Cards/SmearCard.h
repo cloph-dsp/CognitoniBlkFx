@@ -28,6 +28,9 @@ public:
         // Smear amount 0..1 (0 = no phase change, 1 = full randomisation)
         float smearAmount  = 0.75f;
 
+        // Stereo spread mode: 0=mono (shared PRBS), 1=wide (moderate offset), 2=full (max decorrelation)
+        int   spreadMode   = 0;
+
         FrequencyBandHz searchBandHz;
     };
 
@@ -46,6 +49,7 @@ private:
     std::atomic<float>    smearAmount_ { 0.75f };
     std::atomic<float>    frequencyAHz_{ 0.0f };
     std::atomic<float>    frequencyBHz_{ 40000.0f };
+    std::atomic<int>      spreadMode_   { 0 };
 
     double    currentSampleRate_ = 0.0;
     int       currentFftSize_    = 4096;
