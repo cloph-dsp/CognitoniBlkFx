@@ -370,6 +370,9 @@ private:
     std::unique_ptr<SliderAttachment>   outputGainAttachment;
     std::unique_ptr<SliderAttachment>   blackLensAttachment;
 
+    juce::ToggleButton lowLatencyButton;
+    std::unique_ptr<ButtonAttachment> lowLatencyAttachment;
+
     // Raw param pointers for freq range sliders (not attached via SliderAttachment
     // because TwoValueHorizontal requires manual sync)
     std::array<std::atomic<float>*, CardSchema::numSlots> slotFreqAParams { nullptr, nullptr, nullptr };
