@@ -77,6 +77,16 @@ public:
     int   getLastOutputChannels() const noexcept;
 
     //==============================================================================
+    /** Runtime lock state for a single slot — locked params are skipped by randomize. */
+    struct SlotLockState
+    {
+        std::atomic<bool> amountLocked{false};
+        std::atomic<bool> wetDryLocked{false};
+        std::atomic<bool> freqLocked{false};
+    };
+
+    SlotLockState& getSlotLockState (int slot) { return slotLockStates[static_cast<size_t> (slot)]; }
+
     /** A pending normalised parameter change to be applied on the audio thread. */
     struct PendingParamChange
     {
@@ -159,6 +169,7 @@ private:
 
     // Per-slot runtime params + global params
     std::array<SlotRuntimeParameters, CardSchema::numSlots> slotRuntimeParams;
+    std::array<SlotLockState, CardSchema::numSlots> slotLockStates;
     std::atomic<float>* masterWetDryParam = nullptr;
     std::atomic<float>* inputGainParam    = nullptr;
     std::atomic<float>* outputGainParam   = nullptr;
