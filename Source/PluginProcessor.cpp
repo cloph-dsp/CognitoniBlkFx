@@ -125,11 +125,12 @@ CognitoniBlkFxAudioProcessor::createDefaultPresetDefinitions()
         },
 
         // -- SuperSoft preset (original DtBlkFx: Smear 0dB/100%, Contrast 50%/1dB, mid range)
+        // ponytail: blackLens 12 (4096 FFT, ~133ms @44.1kHz) — original 16 caused ~2.2s latency.
         {
             "Super Soft",
             false,
             "DtBlkFx",
-            { { paramMasterWetDry, 1.0f }, { paramBlackLens, 16.0f } },
+            { { paramMasterWetDry, 1.0f }, { paramBlackLens, 12.0f } },
             {
                 // Slot 0: Smear — amp=0.6 (0dB), smear=1.0 (100%), freqB=0.94886
                 makeSlot (0, kSmear, 0.6f, 0.0f, 0.0f, 0.94886f, 0.0f, 1.0f),
@@ -450,7 +451,16 @@ bool CognitoniBlkFxAudioProcessor::isMidiEffect() const
    #endif
 }
 
-double CognitoniBlkFxAudioProcessor::getTailLengthSeconds() const { return 0.0; }
+double CognitoniBlkFxAudioProcessor::getTailLengthSeconds() const {     return 0.0;
+}
+
+int CognitoniBlkFxAudioProcessor::getLatencySamples() const
+{
+    const int fftSize = fftProcessor.getFftSize();
+    const int hopSize = fftProcessor.getHopSize();
+    // Output latency = 2 * fftSize - hopSize (crossfade-output OLA engine)
+    return juce::jmax (0, 2 * fftSize - hopSize);
+}
 
 int  CognitoniBlkFxAudioProcessor::getNumPrograms() { return juce::jmax (1, static_cast<int> (getPresetDefinitions().size())); }
 int  CognitoniBlkFxAudioProcessor::getCurrentProgram() { return currentPresetIndex.load (std::memory_order_relaxed); }
