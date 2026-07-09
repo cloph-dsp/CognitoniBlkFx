@@ -169,7 +169,13 @@ private:
         juce::Label        frequencyALabel;    // value below left
         juce::Label        frequencyBLabel;    // value below right
 
+        juce::TextButton   lockAmountBtn;
+        juce::TextButton   lockWetDryBtn;
+
         juce::Colour       accent { juce::Colour::fromRGB (185, 180, 172) };
+
+        CognitoniBlkFxAudioProcessor* processorRef = nullptr;
+        void setProcessor (CognitoniBlkFxAudioProcessor* p) { processorRef = p; }
 
         std::function<void(int)>              onAddCardClicked;
         std::function<void(int)>              onDragStarted;
@@ -302,6 +308,7 @@ private:
     void rebuildSlotAttachments (int slotIndex);
     void showCardPickerModal (int slotIndex);
     void randomizeCards();
+    void resetSlotLockStates();
     void dragOperationStarted (const juce::DragAndDropTarget::SourceDetails& details) override;
     void dragOperationEnded   (const juce::DragAndDropTarget::SourceDetails& details) override;
     int slotIndexForScreenPoint (juce::Point<int> screenPoint) const;
@@ -326,6 +333,7 @@ private:
     IconButton      deletePresetButton{ "Delete Preset" };
     IconButton      randomizeButton   { "Randomize"     };
     juce::HyperlinkButton versionLabel;
+    juce::Label updateBadge;
 
     //  3 slot cards 
     std::array<CardComponent, CardSchema::numSlots> slotCards;
@@ -369,6 +377,9 @@ private:
     std::unique_ptr<SliderAttachment>   inputGainAttachment;
     std::unique_ptr<SliderAttachment>   outputGainAttachment;
     std::unique_ptr<SliderAttachment>   blackLensAttachment;
+
+    juce::ToggleButton lowLatencyButton;
+    std::unique_ptr<ButtonAttachment> lowLatencyAttachment;
 
     // Raw param pointers for freq range sliders (not attached via SliderAttachment
     // because TwoValueHorizontal requires manual sync)

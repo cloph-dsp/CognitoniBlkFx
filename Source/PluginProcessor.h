@@ -77,6 +77,16 @@ public:
     int   getLastOutputChannels() const noexcept;
 
     //==============================================================================
+    /** Runtime lock state for a single slot — locked params are skipped by randomize. */
+    struct SlotLockState
+    {
+        std::atomic<bool> amountLocked{false};
+        std::atomic<bool> wetDryLocked{false};
+        std::atomic<bool> freqLocked{false};
+    };
+
+    SlotLockState& getSlotLockState (int slot) { return slotLockStates[static_cast<size_t> (slot)]; }
+
     /** A pending normalised parameter change to be applied on the audio thread. */
     struct PendingParamChange
     {
@@ -102,6 +112,17 @@ public:
     void queueParameterChanges (std::vector<PendingParamChange> changes,
                                 bool forceCardRebuild   = false,
                                 int  presetIndexToStore = -1);
+
+    //==============================================================================
+    /** Checks GitHub releases for a newer version (non-blocking, one call per session). */
+    void checkForUpdate();
+    std::atomic<bool> updateAvailable{false};
+    juce::String latestVersion;
+    bool isUpdateAvailable() const noexcept { return updateAvailable.load(); }
+    juce::String getLatestVersion() const noexcept { return latestVersion; }
+
+    std::atomic<float>* lowLatencyParam = nullptr;
+    bool isLowLatencyEnabled() const { return lowLatencyParam && lowLatencyParam->load (std::memory_order_relaxed) > 0.5f; }
 
 private:
     // Per-slot runtime parameter pointers
@@ -159,6 +180,7 @@ private:
 
     // Per-slot runtime params + global params
     std::array<SlotRuntimeParameters, CardSchema::numSlots> slotRuntimeParams;
+    std::array<SlotLockState, CardSchema::numSlots> slotLockStates;
     std::atomic<float>* masterWetDryParam = nullptr;
     std::atomic<float>* inputGainParam    = nullptr;
     std::atomic<float>* outputGainParam   = nullptr;

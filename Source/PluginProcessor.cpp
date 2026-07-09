@@ -152,6 +152,57 @@ CognitoniBlkFxAudioProcessor::getPresetDefinitions() const
 }
 
 //==============================================================================
+//  Update check
+//==============================================================================
+void CognitoniBlkFxAudioProcessor::checkForUpdate()
+{
+    struct UpdateJob : public juce::ThreadPoolJob
+    {
+        UpdateJob (CognitoniBlkFxAudioProcessor& p)
+            : ThreadPoolJob ("UpdateCheck"), processor (p) {}
+
+        JobStatus runJob() override
+        {
+            juce::URL url ("https://api.github.com/repos/toni-lyttinen/CognitoniBlkFx/releases/latest");
+            auto stream = url.createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inPostData)
+                .withConnectionTimeoutMs (5000)
+                .withResponseHeaders (nullptr)
+                .withNumRedirectsToFollow (3));
+
+            if (stream != nullptr)
+            {
+                auto json = juce::JSON::parse (stream->readEntireStreamAsString());
+                auto tag = json["tag_name"].toString();
+
+                if (tag.isNotEmpty())
+                {
+                    juce::String currentVer (JucePlugin_VersionString);
+                    juce::String latestVer = tag;
+                    if (latestVer.startsWith ("v"))
+                        latestVer = latestVer.substring (1);
+
+                    if (latestVer.isNotEmpty() && latestVer != currentVer)
+                    {
+                        processor.latestVersion = tag;
+                        processor.updateAvailable.store (true);
+                    }
+                }
+            }
+            return jobHasFinished;
+        }
+
+        CognitoniBlkFxAudioProcessor& processor;
+    };
+
+    if (auto* pool = juce::ThreadPool::getInstance())
+    {
+        UpdateJob* job = new UpdateJob (*this);
+        job->setShouldTerminateOnWorkerThreadChange (true);
+        pool->addJob (job, true);
+    }
+}
+
+//==============================================================================
 //  Constructor / Destructor
 //==============================================================================
 CognitoniBlkFxAudioProcessor::CognitoniBlkFxAudioProcessor()
@@ -174,12 +225,15 @@ CognitoniBlkFxAudioProcessor::CognitoniBlkFxAudioProcessor()
     inputGainParam    = apvts.getRawParameterValue (paramInputGain);
     outputGainParam   = apvts.getRawParameterValue (paramOutputGain);
     blackLensParam    = apvts.getRawParameterValue (paramBlackLens);
+    lowLatencyParam   = apvts.getRawParameterValue ("lowLatency");
 
     presetDefinitions = createDefaultPresetDefinitions();
     loadPresetsFromJson();
 
     rebuildCardRack();
     applyPresetByIndex (0);
+
+    checkForUpdate();
 }
 
 CognitoniBlkFxAudioProcessor::~CognitoniBlkFxAudioProcessor() {}
@@ -216,6 +270,9 @@ CognitoniBlkFxAudioProcessor::createParameterLayout()
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { paramBlackLens, 1 }, "BlackLens",
         juce::NormalisableRange<float> (8.0f, 16.0f, 1.0f), 12.0f));
+
+    params.push_back (std::make_unique<juce::AudioParameterBool> (
+        juce::ParameterID { "lowLatency", 1 }, "Low Latency", false));
 
     for (int s = 0; s < CardSchema::numSlots; ++s)
     {
@@ -508,9 +565,11 @@ void CognitoniBlkFxAudioProcessor::prepareToPlay (double sampleRate, int samples
 
     FFTProcessor::Settings fftSettings;
     fftSettings.overlapAmount = 0.499f;
-    fftSettings.fftOrder      = (blackLensParam != nullptr)
-                                    ? fftOrderFromParam (blackLensParam->load (std::memory_order_relaxed))
-                                    : FFTProcessor::defaultFftOrder;
+    const int rawOrder = (blackLensParam != nullptr)
+                             ? fftOrderFromParam (blackLensParam->load (std::memory_order_relaxed))
+                             : FFTProcessor::defaultFftOrder;
+    const int maxOrder = isLowLatencyEnabled() ? 10 : 17;
+    fftSettings.fftOrder = juce::jmin (rawOrder, maxOrder);
     fftProcessor.setSettings (fftSettings);
 
     kDryDelaySize = 2 * fftProcessor.getFftSize() - fftProcessor.getHopSize();
@@ -658,7 +717,9 @@ void CognitoniBlkFxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     // Detect blackLens (FFT window) changes and rebuild if needed
     if (blackLensParam != nullptr)
     {
-        const int reqOrder = fftOrderFromParam (blackLensParam->load (std::memory_order_relaxed));
+        const int rawOrder = fftOrderFromParam (blackLensParam->load (std::memory_order_relaxed));
+        const int maxOrder = isLowLatencyEnabled() ? 10 : 17;
+        const int reqOrder = juce::jmin (rawOrder, maxOrder);
         if (reqOrder != fftProcessor.getFftOrder())
         {
             const int numCh = (int)dryDelayBuffers.size();
@@ -685,7 +746,7 @@ void CognitoniBlkFxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
 
     FFTProcessor::Settings fftSettings;
     fftSettings.overlapAmount = 0.499f;
-    fftSettings.fftOrder      = fftProcessor.getFftOrder();
+    fftSettings.fftOrder = juce::jmin (fftProcessor.getFftOrder(), isLowLatencyEnabled() ? 10 : 17);
     fftProcessor.setSettings (fftSettings);
     fftProcessor.processBlock (buffer, cardRack);
 
