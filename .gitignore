@@ -18,6 +18,7 @@ context.md
 *.ilk
 *.pdb
 *.exe
+*.dmg
 *.app
 *.dylib
 *.so
