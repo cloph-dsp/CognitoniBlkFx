@@ -76,9 +76,11 @@ void SmearCard::setNumChannels (int numChannels)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // process():  for each in-band bin:
-//   bin *= amp * ( randUnit * smear + (1-smear) )
+//   bin *= amp * normalized( randUnit * smear + (1-smear) )
 // At smear=0  → bin *= amp  (pure gain, no phase change)
 // At smear=1  → bin *= amp * randUnit  (full phase scramble)
+// At partial smear the blended vector is normalised to unit magnitude
+// so the amplitude does not change (fix/smear-amplitude).
 // ─────────────────────────────────────────────────────────────────────────────
 void SmearCard::process (juce::dsp::Complex<float>* bins, int numBins)
 {
@@ -142,6 +144,15 @@ void SmearCard::process (juce::dsp::Complex<float>* bins, int numBins)
             randUnit.real() * smear + (1.0f - smear),
             randUnit.imag() * smear
         };
+
+        // Normalise to unit circle to prevent amplitude modulation at partial smear
+        const float mag = std::sqrt (blended.real() * blended.real()
+                                    + blended.imag() * blended.imag());
+        if (mag > 0.001f)
+        {
+            const_cast<juce::dsp::Complex<float>&> (blended).real() /= mag;
+            const_cast<juce::dsp::Complex<float>&> (blended).imag() /= mag;
+        }
 
         bins[bin] = amp * bins[bin] * blended;
     }
