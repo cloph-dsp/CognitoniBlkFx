@@ -2097,16 +2097,18 @@ void CognitoniBlkFxAudioProcessorEditor::randomizeCards()
             paramIds.push_back (CardSchema::cardTypeParam (slot));  paramValues.push_back (typeNorm);
 
             // Skip locked params
-            auto& lockState = audioProcessor.getSlotLockState (slot);
-            if (! lockState.amountLocked.load (std::memory_order_relaxed))
             {
-                paramIds.push_back (CardSchema::amountParam (slot));
-                paramValues.push_back (valDist (rng));
-            }
-            if (! lockState.wetDryLocked.load (std::memory_order_relaxed))
-            {
-                paramIds.push_back (CardSchema::wetDryParam (slot));
-                paramValues.push_back (valDist (rng));
+                auto& lockState = audioProcessor.getSlotLockState (slot);
+                if (! lockState.amountLocked.load (std::memory_order_relaxed))
+                {
+                    paramIds.push_back (CardSchema::amountParam (slot));
+                    paramValues.push_back (valDist (rng));
+                }
+                if (! lockState.wetDryLocked.load (std::memory_order_relaxed))
+                {
+                    paramIds.push_back (CardSchema::wetDryParam (slot));
+                    paramValues.push_back (valDist (rng));
+                }
             }
             paramIds.push_back (CardSchema::bypassParam (slot));  paramValues.push_back (0.0f);
         }
