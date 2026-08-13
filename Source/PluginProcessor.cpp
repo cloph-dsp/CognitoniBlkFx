@@ -175,6 +175,7 @@ CognitoniBlkFxAudioProcessor::CognitoniBlkFxAudioProcessor()
     inputGainParam    = apvts.getRawParameterValue (paramInputGain);
     outputGainParam   = apvts.getRawParameterValue (paramOutputGain);
     blackLensParam    = apvts.getRawParameterValue (paramBlackLens);
+    lowLatencyParam   = apvts.getRawParameterValue ("lowLatency");
 
     presetDefinitions = createDefaultPresetDefinitions();
     loadPresetsFromJson();
@@ -217,6 +218,9 @@ CognitoniBlkFxAudioProcessor::createParameterLayout()
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { paramBlackLens, 1 }, "BlackLens",
         juce::NormalisableRange<float> (8.0f, 16.0f, 1.0f), 12.0f));
+
+    params.push_back (std::make_unique<juce::AudioParameterBool> (
+        juce::ParameterID { "lowLatency", 1 }, "Low Latency", false));
 
     for (int s = 0; s < CardSchema::numSlots; ++s)
     {
@@ -518,9 +522,11 @@ void CognitoniBlkFxAudioProcessor::prepareToPlay (double sampleRate, int samples
 
     FFTProcessor::Settings fftSettings;
     fftSettings.overlapAmount = 0.499f;
-    fftSettings.fftOrder      = (blackLensParam != nullptr)
-                                    ? fftOrderFromParam (blackLensParam->load (std::memory_order_relaxed))
-                                    : FFTProcessor::defaultFftOrder;
+    const int rawOrder = (blackLensParam != nullptr)
+                             ? fftOrderFromParam (blackLensParam->load (std::memory_order_relaxed))
+                             : FFTProcessor::defaultFftOrder;
+    const int maxOrder = isLowLatencyEnabled() ? 10 : 17;
+    fftSettings.fftOrder = juce::jmin (rawOrder, maxOrder);
     fftProcessor.setSettings (fftSettings);
 
     kDryDelaySize = 2 * fftProcessor.getFftSize() - fftProcessor.getHopSize();
@@ -668,7 +674,9 @@ void CognitoniBlkFxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     // Detect blackLens (FFT window) changes and rebuild if needed
     if (blackLensParam != nullptr)
     {
-        const int reqOrder = fftOrderFromParam (blackLensParam->load (std::memory_order_relaxed));
+        const int rawOrder = fftOrderFromParam (blackLensParam->load (std::memory_order_relaxed));
+        const int maxOrder = isLowLatencyEnabled() ? 10 : 17;
+        const int reqOrder = juce::jmin (rawOrder, maxOrder);
         if (reqOrder != fftProcessor.getFftOrder())
         {
             const int numCh = (int)dryDelayBuffers.size();
@@ -695,7 +703,7 @@ void CognitoniBlkFxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
 
     FFTProcessor::Settings fftSettings;
     fftSettings.overlapAmount = 0.499f;
-    fftSettings.fftOrder      = fftProcessor.getFftOrder();
+    fftSettings.fftOrder = juce::jmin (fftProcessor.getFftOrder(), isLowLatencyEnabled() ? 10 : 17);
     fftProcessor.setSettings (fftSettings);
     fftProcessor.processBlock (buffer, cardRack);
 

@@ -1352,6 +1352,12 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     addAndMakeVisible (blackLensKnob);
     addAndMakeVisible (blackLensLabel);
 
+    lowLatencyAttachment = std::make_unique<ButtonAttachment> (apvts, "lowLatency", lowLatencyButton);
+    addAndMakeVisible (lowLatencyButton);
+    lowLatencyButton.setButtonText ("Low Latency");
+    lowLatencyButton.setColour (juce::ToggleButton::textColourId, juce::Colour::fromRGB (170, 178, 195));
+    lowLatencyButton.setColour (juce::ToggleButton::tickColourId, juce::Colour::fromRGB (140, 180, 230));
+
     setResizable (true, false);
     if (auto* ar = getConstrainer())
         ar->setFixedAspectRatio (760.0 / 660.0);
@@ -1526,6 +1532,13 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
     auto blArea = rp.removeFromTop (blKnobH);
     blackLensKnob.setBounds (blArea.withSizeKeepingCentre (blKnobSz + 16, blKnobH));
     rp.removeFromTop (9);
+
+    // Low Latency toggle (below BlackLens)
+    {
+        const int llBtnH = 22;
+        lowLatencyButton.setBounds (rp.removeFromTop (llBtnH).reduced (2, 0));
+        rp.removeFromTop (6);
+    }
 
     // Mix knob
     const int mixKnobSz = juce::jmin (rp.getWidth() - 8, 52);

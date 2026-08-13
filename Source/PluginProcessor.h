@@ -103,6 +103,9 @@ public:
                                 bool forceCardRebuild   = false,
                                 int  presetIndexToStore = -1);
 
+    std::atomic<float>* lowLatencyParam = nullptr;
+    bool isLowLatencyEnabled() const { return lowLatencyParam && lowLatencyParam->load (std::memory_order_relaxed) > 0.5f; }
+
 private:
     // Per-slot runtime parameter pointers
     struct SlotRuntimeParameters
