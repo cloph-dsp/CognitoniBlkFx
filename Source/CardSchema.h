@@ -58,10 +58,10 @@ namespace CardSchema
     }
 
     // Whether the given card type uses the harmonic-type selector knob
-    // AutoHarm uses a single continuous wetDry knob that sweeps 0%Both→100%Between
-    inline bool hasHarmonicSelector (CardType /*t*/) noexcept
+    // Used by SmearCard to select stereo spread mode (Mono/Wide/Full)
+    inline bool hasHarmonicSelector (CardType t) noexcept
     {
-        return false;
+        return t == CardType::smear;
     }
 
     // Display label for the "Value" knob per card type
@@ -70,7 +70,7 @@ namespace CardSchema
         switch (t)
         {
             case CardType::autoHarm: return "Type";
-            case CardType::smear:    return "Smear";
+            case CardType::smear:    return "Phase";
             default:                 return "Value";
         }
     }
