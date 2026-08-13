@@ -143,6 +143,32 @@ CognitoniBlkFxAudioProcessorEditor::CardComponent::CardComponent()
     wetDryHeaderLabel.setFont (juce::FontOptions().withName ("Montserrat").withHeight (11.5f));
     wetDryHeaderLabel.setColour (juce::Label::textColourId, juce::Colour::fromRGB (120, 115, 110));
 
+    // Lock toggles — small 🔓/🔒 buttons on knob headers
+    addAndMakeVisible (lockAmountBtn);
+    addAndMakeVisible (lockWetDryBtn);
+    lockAmountBtn.setButtonText (juce::CharPointer_UTF8 ("\xf0\x9f\x94\x93"));  // 🔓
+    lockWetDryBtn.setButtonText (juce::CharPointer_UTF8 ("\xf0\x9f\x94\x93"));
+    lockAmountBtn.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentWhite);
+    lockWetDryBtn.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentWhite);
+    lockAmountBtn.setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (160, 155, 148));
+    lockWetDryBtn.setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (160, 155, 148));
+    lockAmountBtn.onClick = [this]
+    {
+        if (processorRef == nullptr) return;
+        auto& ls = processorRef->getSlotLockState (slotIndex);
+        const bool newVal = ! ls.amountLocked.load (std::memory_order_relaxed);
+        ls.amountLocked.store (newVal, std::memory_order_relaxed);
+        lockAmountBtn.setButtonText (juce::CharPointer_UTF8 (newVal ? "\xf0\x9f\x94\x92" : "\xf0\x9f\x94\x93"));
+    };
+    lockWetDryBtn.onClick = [this]
+    {
+        if (processorRef == nullptr) return;
+        auto& ls = processorRef->getSlotLockState (slotIndex);
+        const bool newVal = ! ls.wetDryLocked.load (std::memory_order_relaxed);
+        ls.wetDryLocked.store (newVal, std::memory_order_relaxed);
+        lockWetDryBtn.setButtonText (juce::CharPointer_UTF8 (newVal ? "\xf0\x9f\x94\x92" : "\xf0\x9f\x94\x93"));
+    };
+
     addAndMakeVisible (frequencyRangeSlider);
     frequencyRangeSlider.setColour (juce::Slider::rotarySliderFillColourId, accent);
     frequencyRangeSlider.setColour (juce::Slider::thumbColourId, accent);
@@ -185,6 +211,8 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::showFilledControls (bool
     harmonicTypeLabel.setVisible(false);
     wetDryKnob.setVisible  (show);
     wetDryHeaderLabel.setVisible (show);
+    lockAmountBtn.setVisible (show);
+    lockWetDryBtn.setVisible (show);
     frequencyRangeSlider.setVisible (show);
     freqStartHeader.setVisible (show);
     freqEndHeader.setVisible   (show);
@@ -406,12 +434,14 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::resized()
     const int valLblH  = hdrH;
     const int kGap     = juce::roundToInt (10.0f * sf);   // uniform gap between sections
     const int labelYOffset = juce::roundToInt (2.0f * sf);
+    const int lockSz   = juce::roundToInt (14.0f * sf);
     const int labelGapToControl = juce::roundToInt (2.0f * sf);
 
     int y = juce::roundToInt ((14.0f + 30.0f) * sf) + iconH + kGap;
 
     // dB knob
     amountHeaderLabel.setBounds (padX, y + labelYOffset, cW, hdrH);
+    lockAmountBtn.setBounds (padX + cW - lockSz - 2, y + labelYOffset + (hdrH - lockSz) / 2, lockSz, lockSz);
     y += hdrH + labelGapToControl;
     amountKnob.setBounds (padX + (cW - bigKnob) / 2, y, bigKnob, bigKnob);
     y += bigKnob + kGap;
@@ -433,6 +463,7 @@ void CognitoniBlkFxAudioProcessorEditor::CardComponent::resized()
 
     // Value/Smear knob
     wetDryHeaderLabel.setBounds (padX, y + labelYOffset, cW, hdrH);
+    lockWetDryBtn.setBounds (padX + cW - lockSz - 2, y + labelYOffset + (hdrH - lockSz) / 2, lockSz, lockSz);
     y += hdrH + labelGapToControl;
     wetDryKnob.setBounds (padX + (cW - smKnob) / 2, y, smKnob, smKnob);
     y += smKnob + kGap;
@@ -1192,6 +1223,7 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
             audioProcessor.applyPresetByIndex (selected - 1);
             const int currentIdx = audioProcessor.getCurrentPresetIndex();
             lastAppliedPresetSelectorId = currentIdx + 1;
+            resetSlotLockStates();
 
             // Always clear the real selectedId after loading so that re-clicking
             // the same preset in the popup goes from id=0 to id=N and fires onChange.
@@ -1235,11 +1267,20 @@ CognitoniBlkFxAudioProcessorEditor::CognitoniBlkFxAudioProcessorEditor (Cogniton
     versionLabel.setColour (juce::HyperlinkButton::textColourId, juce::Colour::fromRGB (148, 144, 138));
     addAndMakeVisible (versionLabel);
 
+    //  Update badge (hidden until checkForUpdate finds a newer release)
+    addAndMakeVisible (updateBadge);
+    updateBadge.setVisible (false);
+    updateBadge.setFont (juce::FontOptions().withHeight (11.0f));
+    updateBadge.setColour (juce::Label::textColourId, juce::Colour::fromRGB (255, 255, 255));
+    updateBadge.setColour (juce::Label::backgroundColourId, juce::Colour::fromRGB (200, 70, 50));
+    updateBadge.setJustificationType (juce::Justification::centred);
+
     //  slot cards 
     for (int s = 0; s < CardSchema::numSlots; ++s)
     {
         auto& card = slotCards[s];
         card.slotIndex = s;
+        card.setProcessor (&audioProcessor);
         card.setTypefaces (montserratRegular, montserratBold);  // pass embedded fonts
         addAndMakeVisible (card);
 
@@ -1489,6 +1530,7 @@ void CognitoniBlkFxAudioProcessorEditor::resized()
         applySlotCardBoundsOrder (buildShiftedOrder (-1, -1), false);
 
     // Right panel internals
+    updateBadge.setBounds (rightPanel.removeFromBottom (18).reduced (4, 2));
     versionLabel.setBounds (rightPanel.removeFromBottom (16).reduced (4, 2).translated (0, -2));
 
     auto rp = rightPanel.reduced (12, 14);
@@ -1600,6 +1642,13 @@ void CognitoniBlkFxAudioProcessorEditor::timerCallback()
                                        juce::dontSendNotification);
         }
     }
+
+    // Show update badge when a newer version is found
+    if (audioProcessor.isUpdateAvailable() && !updateBadge.isVisible())
+    {
+        updateBadge.setText ("Update: " + audioProcessor.getLatestVersion() + " available!", juce::dontSendNotification);
+        updateBadge.setVisible (true);
+    }
 }
 
 void CognitoniBlkFxAudioProcessorEditor::refreshFrequencyLabels()
@@ -1661,6 +1710,7 @@ void CognitoniBlkFxAudioProcessorEditor::refreshPresetSelectorItems()
 
     const int currentIdx = audioProcessor.getCurrentPresetIndex();
     lastAppliedPresetSelectorId = currentIdx + 1;
+    resetSlotLockStates();
 
     // Never set a real selectedId.  The displayed name is shown as placeholder text
     // via setTextWhenNothingSelected so that selectedId stays 0.  This means any
@@ -1998,6 +2048,22 @@ void CognitoniBlkFxAudioProcessorEditor::showCardPickerModal (int s)
     cardPickerOverlay->toFront (true);
 }
 
+//  Lock state reset 
+void CognitoniBlkFxAudioProcessorEditor::resetSlotLockStates()
+{
+    for (int s = 0; s < CardSchema::numSlots; ++s)
+    {
+        auto& ls = audioProcessor.getSlotLockState (s);
+        ls.amountLocked.store (false, std::memory_order_relaxed);
+        ls.wetDryLocked.store (false, std::memory_order_relaxed);
+        ls.freqLocked.store   (false, std::memory_order_relaxed);
+        slotCards[(size_t) s].lockAmountBtn.setButtonText (
+            juce::CharPointer_UTF8 ("\xf0\x9f\x94\x93"));
+        slotCards[(size_t) s].lockWetDryBtn.setButtonText (
+            juce::CharPointer_UTF8 ("\xf0\x9f\x94\x93"));
+    }
+}
+
 //  Randomizer 
 void CognitoniBlkFxAudioProcessorEditor::randomizeCards()
 {
@@ -2029,9 +2095,20 @@ void CognitoniBlkFxAudioProcessorEditor::randomizeCards()
         {
             const float typeNorm = (float)typeDist (rng) / (float)(CardSchema::numCardTypes - 1);
             paramIds.push_back (CardSchema::cardTypeParam (slot));  paramValues.push_back (typeNorm);
-            paramIds.push_back (CardSchema::amountParam   (slot));  paramValues.push_back (valDist (rng));
-            paramIds.push_back (CardSchema::wetDryParam   (slot));  paramValues.push_back (valDist (rng));
-            paramIds.push_back (CardSchema::bypassParam   (slot));  paramValues.push_back (0.0f);
+
+            // Skip locked params
+            auto& lockState = audioProcessor.getSlotLockState (slot);
+            if (! lockState.amountLocked.load (std::memory_order_relaxed))
+            {
+                paramIds.push_back (CardSchema::amountParam (slot));
+                paramValues.push_back (valDist (rng));
+            }
+            if (! lockState.wetDryLocked.load (std::memory_order_relaxed))
+            {
+                paramIds.push_back (CardSchema::wetDryParam (slot));
+                paramValues.push_back (valDist (rng));
+            }
+            paramIds.push_back (CardSchema::bypassParam (slot));  paramValues.push_back (0.0f);
         }
         else
         {

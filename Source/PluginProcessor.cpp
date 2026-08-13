@@ -153,6 +153,57 @@ CognitoniBlkFxAudioProcessor::getPresetDefinitions() const
 }
 
 //==============================================================================
+//  Update check
+//==============================================================================
+void CognitoniBlkFxAudioProcessor::checkForUpdate()
+{
+    struct UpdateJob : public juce::ThreadPoolJob
+    {
+        UpdateJob (CognitoniBlkFxAudioProcessor& p)
+            : ThreadPoolJob ("UpdateCheck"), processor (p) {}
+
+        JobStatus runJob() override
+        {
+            juce::URL url ("https://api.github.com/repos/toni-lyttinen/CognitoniBlkFx/releases/latest");
+            auto stream = url.createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inPostData)
+                .withConnectionTimeoutMs (5000)
+                .withResponseHeaders (nullptr)
+                .withNumRedirectsToFollow (3));
+
+            if (stream != nullptr)
+            {
+                auto json = juce::JSON::parse (stream->readEntireStreamAsString());
+                auto tag = json["tag_name"].toString();
+
+                if (tag.isNotEmpty())
+                {
+                    juce::String currentVer (JucePlugin_VersionString);
+                    juce::String latestVer = tag;
+                    if (latestVer.startsWith ("v"))
+                        latestVer = latestVer.substring (1);
+
+                    if (latestVer.isNotEmpty() && latestVer != currentVer)
+                    {
+                        processor.latestVersion = tag;
+                        processor.updateAvailable.store (true);
+                    }
+                }
+            }
+            return jobHasFinished;
+        }
+
+        CognitoniBlkFxAudioProcessor& processor;
+    };
+
+    if (auto* pool = juce::ThreadPool::getInstance())
+    {
+        UpdateJob* job = new UpdateJob (*this);
+        job->setShouldTerminateOnWorkerThreadChange (true);
+        pool->addJob (job, true);
+    }
+}
+
+//==============================================================================
 //  Constructor / Destructor
 //==============================================================================
 CognitoniBlkFxAudioProcessor::CognitoniBlkFxAudioProcessor()
@@ -182,6 +233,8 @@ CognitoniBlkFxAudioProcessor::CognitoniBlkFxAudioProcessor()
 
     rebuildCardRack();
     applyPresetByIndex (0);
+
+    checkForUpdate();
 }
 
 CognitoniBlkFxAudioProcessor::~CognitoniBlkFxAudioProcessor() {}
