@@ -12,16 +12,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Add MSBuild to PATH
-        uses: microsoft/setup-msbuild@v2
+      - name: Configure
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
       - name: Build VST3
-        run: |
-          msbuild Builds/VisualStudio2022/CognitoniBlkFx.sln /p:Configuration=Release /p:Platform=x64
+        run: cmake --build build --config Release --parallel 4
       - name: Build installer
-        run: |
-          iscc installer/win/installer.iss
+        run: iscc installer/win/installer.iss
       - uses: actions/upload-artifact@v4
         with:
           name: BlkFx-Win
@@ -31,11 +27,10 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - name: Build VST3
         run: |
-          xcodebuild -project Builds/MacOSX/CognitoniBlkFx.xcodeproj -configuration Release
+          cmake -B build
+          cmake --build build --config Release --parallel 3
       - name: Create DMG
         run: |
           chmod +x installer/mac/create-dmg.sh

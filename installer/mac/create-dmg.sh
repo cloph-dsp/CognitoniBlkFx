@@ -10,7 +10,7 @@ DMG_PATH="$BUILD_DIR/$DMG_NAME"
 STAGING_DIR=$(mktemp -d)
 
 # Copy VST3 bundle
-cp -R "$BUILD_DIR/MacOSX/Release/BlkFx.vst3" "$STAGING_DIR/"
+cp -R "$PROJECT_ROOT/build/BlkFx_artefacts/Release/VST3/BlkFx.vst3" "$STAGING_DIR/"
 
 # Create alias to VST3 install folder
 ln -s "/Library/Audio/Plug-Ins/VST3" "$STAGING_DIR/"
@@ -19,6 +19,7 @@ ln -s "/Library/Audio/Plug-Ins/VST3" "$STAGING_DIR/"
 cp "$(dirname "$0")/README.txt" "$STAGING_DIR/"
 
 # Create DMG
+mkdir -p "$BUILD_DIR"
 hdiutil create -volname "BlkFx $APP_VERSION" \
   -srcfolder "$STAGING_DIR" \
   -ov -format UDZO \

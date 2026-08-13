@@ -24,7 +24,7 @@ PrivilegesRequired=admin
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-Source: "..\..\Builds\VisualStudio2022\x64\Release\VST3\BlkFx.vst3"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\build\BlkFx_artefacts\Release\VST3\BlkFx.vst3"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Uninstall BlkFx"; Filename: "{uninstallexe}"
